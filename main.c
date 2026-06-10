@@ -4,6 +4,11 @@
 #include <string.h>
 #include "s7/s7.h"
 
+#define VERSTRING  "0.1.0"
+#ifndef HASHVER
+#define HASHVER "unknown"
+#endif
+
 // Dynamic resizing string buffer to capture raw Lisp forms
 typedef struct {
     char *data;
@@ -45,14 +50,14 @@ int main(int argc, char **argv) {
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
-            printf("Usage: %s [options] <input.texm> <output.tex>\n", argv[0]);
+            printf("Usage: %s [options] <input.lext> <output>\n", argv[0]);
             printf("Options:\n");
             printf("  -h, --help      Show this help message\n");
             printf("  -v, --version   Show version information\n");
             printf("  -e, --escape    Enable auto-escaping of backslashes inside string literals in @@(...)\n");
             return EXIT_SUCCESS;
         } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0) {
-            printf("texm version 0.1.0\n");
+            printf("lext version " VERSTRING "-" HASHVER "\n");
             return EXIT_SUCCESS;
         } else if (strcmp(argv[i], "-e") == 0 || strcmp(argv[i], "--escape") == 0) {
             escape_enabled = true;
