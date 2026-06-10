@@ -639,25 +639,29 @@ enum State {
 
 int main(int argc, char **argv) {
     bool escape_enabled = false;
+    bool no_template = false;
     char *input_file = NULL;
     char *output_file = NULL;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
-            printf("Usage: %s [options] <input.lext> <output>\n", argv[0]);
+            printf("Usage: %s [options] <input_file> [<output_file>]\n", argv[0]);
             printf("Options:\n");
-            printf("  -h, --help      Show this help message\n");
-            printf("  -v, --version   Show version information\n");
-            printf("  -e, --escape    Enable auto-escaping of backslashes inside string literals in @@(...)\n");
+            printf("  -h, --help         Show this help message\n");
+            printf("  -v, --version      Show version information\n");
+            printf("  -e, --escape       Enable auto-escaping of backslashes inside string literals in @@(...)\n");
+            printf("  -s, --no-template  Run as a pure Scheme script runner without output\n");
             return EXIT_SUCCESS;
         } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0) {
             printf("lext version " VERSTRING "-" HASHVER "\n");
             return EXIT_SUCCESS;
         } else if (strcmp(argv[i], "-e") == 0 || strcmp(argv[i], "--escape") == 0) {
             escape_enabled = true;
+        } else if (strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "--no-template") == 0) {
+            no_template = true;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [options] <input.texm> <output.tex>\n", argv[0]);
+            fprintf(stderr, "Usage: %s [options] <input_file> [<output_file>]\n", argv[0]);
             return EXIT_FAILURE;
         } else {
             if (!input_file) {
@@ -666,15 +670,31 @@ int main(int argc, char **argv) {
                 output_file = argv[i];
             } else {
                 fprintf(stderr, "Too many arguments.\n");
-                fprintf(stderr, "Usage: %s [options] <input.texm> <output.tex>\n", argv[0]);
+                fprintf(stderr, "Usage: %s [options] <input_file> [<output_file>]\n", argv[0]);
                 return EXIT_FAILURE;
             }
         }
     }
 
-    if (!input_file || !output_file) {
-        fprintf(stderr, "Error: Input and output files are required.\n");
+    if (!input_file) {
+        fprintf(stderr, "Error: Input file is required.\n");
+        if (no_template) {
+            fprintf(stderr, "Usage: %s [options] <input_file>\n", argv[0]);
+        } else {
+            fprintf(stderr, "Usage: %s [options] <input.texm> <output.tex>\n", argv[0]);
+        }
+        return EXIT_FAILURE;
+    }
+
+    if (!no_template && !output_file) {
+        fprintf(stderr, "Error: Output file is required when not in --no-template mode.\n");
         fprintf(stderr, "Usage: %s [options] <input.texm> <output.tex>\n", argv[0]);
+        return EXIT_FAILURE;
+    }
+
+    if (no_template && output_file) {
+        fprintf(stderr, "Error: Output file is not allowed in --no-template mode.\n");
+        fprintf(stderr, "Usage: %s [options] <input_file>\n", argv[0]);
         return EXIT_FAILURE;
     }
 
@@ -684,19 +704,25 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
-    FILE *out = fopen(output_file, "w");
-    if (!out) {
-        fprintf(stderr, "ERR: Could not create output file: %s\n", output_file);
+    FILE *out = NULL;
+    if (!no_template) {
+        out = fopen(output_file, "w");
+        if (!out) {
+            fprintf(stderr, "ERR: Could not create output file: %s\n", output_file);
+            fclose(in);
+            return EXIT_FAILURE;
+        }
+    } else {
         fclose(in);
-        return EXIT_FAILURE;
+        in = NULL;
     }
 
     // Initialize s7 VM state
     s7_scheme *s7 = s7_init();
     if (!s7) {
         fprintf(stderr, "ERR: Failed to initialize s7 Scheme engine.\n");
-        fclose(in);
-        fclose(out);
+        if (in) fclose(in);
+        if (out) fclose(out);
         return EXIT_FAILURE;
     }
 
@@ -707,6 +733,11 @@ int main(int argc, char **argv) {
     s7_define_function(s7, "ffi-sym", ffi_sym, 2, 0, false, "(ffi-sym handle name) finds symbol in library");
     s7_define_function(s7, "ffi-close", ffi_close, 1, 0, false, "(ffi-close handle) closes dynamic library");
     s7_define_function(s7, "ffi-call", s7_ffi_call, 4, 0, false, "(ffi-call func ret-type arg-types arg-vals) invokes foreign function");
+
+    if (no_template) {
+        s7_load(s7, input_file);
+        return EXIT_SUCCESS;
+    }
 
     enum State state = STATE_TEXT;
     int c;
