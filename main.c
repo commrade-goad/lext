@@ -82,7 +82,14 @@ static s7_pointer resolve_type_desc(s7_scheme *sc, s7_pointer type_desc) {
         if (strcmp(name, "void") == 0 || strcmp(name, "int") == 0 ||
             strcmp(name, "enum") == 0 || strcmp(name, "double") == 0 ||
             strcmp(name, "float") == 0 || strcmp(name, "string") == 0 ||
-            strcmp(name, "pointer") == 0) {
+            strcmp(name, "pointer") == 0 ||
+            strcmp(name, "char") == 0 || strcmp(name, "schar") == 0 || strcmp(name, "uchar") == 0 ||
+            strcmp(name, "int8") == 0 || strcmp(name, "uint8") == 0 ||
+            strcmp(name, "short") == 0 || strcmp(name, "ushort") == 0 ||
+            strcmp(name, "int16") == 0 || strcmp(name, "uint16") == 0 ||
+            strcmp(name, "int32") == 0 || strcmp(name, "uint32") == 0 ||
+            strcmp(name, "long") == 0 || strcmp(name, "ulong") == 0 ||
+            strcmp(name, "int64") == 0 || strcmp(name, "uint64") == 0) {
             return type_desc;
         }
         s7_pointer resolved = lookup_named_type(sc, type_desc);
@@ -100,7 +107,14 @@ static bool type_has_integer(s7_scheme *sc, s7_pointer type_desc) {
     if (s7_is_symbol(type_desc)) {
         const char *name = s7_symbol_name(type_desc);
         if (strcmp(name, "int") == 0 || strcmp(name, "enum") == 0 ||
-            strcmp(name, "pointer") == 0 || strcmp(name, "string") == 0) {
+            strcmp(name, "pointer") == 0 || strcmp(name, "string") == 0 ||
+            strcmp(name, "char") == 0 || strcmp(name, "schar") == 0 || strcmp(name, "uchar") == 0 ||
+            strcmp(name, "int8") == 0 || strcmp(name, "uint8") == 0 ||
+            strcmp(name, "short") == 0 || strcmp(name, "ushort") == 0 ||
+            strcmp(name, "int16") == 0 || strcmp(name, "uint16") == 0 ||
+            strcmp(name, "int32") == 0 || strcmp(name, "uint32") == 0 ||
+            strcmp(name, "long") == 0 || strcmp(name, "ulong") == 0 ||
+            strcmp(name, "int64") == 0 || strcmp(name, "uint64") == 0) {
             return true;
         }
         return false;
@@ -116,6 +130,9 @@ static bool type_has_integer(s7_scheme *sc, s7_pointer type_desc) {
                     if (type_has_integer(sc, s7_car(curr))) return true;
                     curr = s7_cdr(curr);
                 }
+            }
+            if (strcmp(head_name, "array") == 0) {
+                return type_has_integer(sc, s7_cadr(type_desc));
             }
         }
     }
@@ -133,6 +150,25 @@ static ffi_type *parse_ffi_type_rec(s7_scheme *sc, s7_pointer type_desc, TypeAll
         if (strcmp(name, "float") == 0) return &ffi_type_float;
         if (strcmp(name, "string") == 0) return &ffi_type_pointer;
         if (strcmp(name, "pointer") == 0) return &ffi_type_pointer;
+
+        if (strcmp(name, "char") == 0 || strcmp(name, "schar") == 0) return &ffi_type_schar;
+        if (strcmp(name, "uchar") == 0) return &ffi_type_uchar;
+        if (strcmp(name, "int8") == 0) return &ffi_type_sint8;
+        if (strcmp(name, "uint8") == 0) return &ffi_type_uint8;
+
+        if (strcmp(name, "short") == 0) return &ffi_type_sshort;
+        if (strcmp(name, "ushort") == 0) return &ffi_type_ushort;
+        if (strcmp(name, "int16") == 0) return &ffi_type_sint16;
+        if (strcmp(name, "uint16") == 0) return &ffi_type_uint16;
+
+        if (strcmp(name, "int32") == 0) return &ffi_type_sint32;
+        if (strcmp(name, "uint32") == 0) return &ffi_type_uint32;
+
+        if (strcmp(name, "long") == 0) return &ffi_type_slong;
+        if (strcmp(name, "ulong") == 0) return &ffi_type_ulong;
+        if (strcmp(name, "int64") == 0) return &ffi_type_sint64;
+        if (strcmp(name, "uint64") == 0) return &ffi_type_uint64;
+
         return NULL;
     }
 
@@ -140,6 +176,33 @@ static ffi_type *parse_ffi_type_rec(s7_scheme *sc, s7_pointer type_desc, TypeAll
         s7_pointer head = s7_car(type_desc);
         if (s7_is_symbol(head)) {
             const char *head_name = s7_symbol_name(head);
+            if (strcmp(head_name, "array") == 0) {
+                s7_pointer type_arg = s7_cadr(type_desc);
+                s7_pointer size_arg = s7_caddr(type_desc);
+                if (!s7_is_integer(size_arg)) return NULL;
+                int size = (int)s7_integer(size_arg);
+                if (size <= 0) return NULL;
+
+                ffi_type *elem_type = parse_ffi_type_rec(sc, type_arg, allocs);
+                if (!elem_type) return NULL;
+
+                ffi_type *stype = malloc(sizeof(ffi_type));
+                stype->size = 0;
+                stype->alignment = 0;
+                stype->type = FFI_TYPE_STRUCT;
+                stype->elements = malloc((size + 1) * sizeof(ffi_type *));
+                for (int i = 0; i < size; i++) {
+                    stype->elements[i] = elem_type;
+                }
+                stype->elements[size] = NULL;
+
+                TypeAlloc *node = malloc(sizeof(TypeAlloc));
+                node->type = stype;
+                node->next = *allocs;
+                *allocs = node;
+
+                return stype;
+            }
             if (strcmp(head_name, "struct") == 0) {
                 s7_pointer fields = s7_cdr(type_desc);
                 int nfields = s7_list_length(sc, fields);
@@ -268,13 +331,43 @@ typedef union {
 
 static int write_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_type *ft, s7_pointer val) {
     type_desc = resolve_type_desc(sc, type_desc);
-    if (ft == &ffi_type_sint) {
+
+    if (ft == &ffi_type_sint || ft == &ffi_type_uint ||
+        ft == &ffi_type_schar || ft == &ffi_type_uchar ||
+        ft == &ffi_type_sshort || ft == &ffi_type_ushort ||
+        ft == &ffi_type_sint8 || ft == &ffi_type_uint8 ||
+        ft == &ffi_type_sint16 || ft == &ffi_type_uint16 ||
+        ft == &ffi_type_sint32 || ft == &ffi_type_uint32 ||
+        ft == &ffi_type_sint64 || ft == &ffi_type_uint64 ||
+        ft == &ffi_type_slong || ft == &ffi_type_ulong) {
+
+        int64_t val_i;
         if (s7_is_integer(val)) {
-            *(int *)buf = (int)s7_integer(val);
+            val_i = s7_integer(val);
         } else if (s7_is_boolean(val)) {
-            *(int *)buf = (s7_boolean(sc, val) ? 1 : 0);
+            val_i = (s7_boolean(sc, val) ? 1 : 0);
         } else if (s7_is_character(val)) {
-            *(int *)buf = (int)s7_character(val);
+            val_i = (int)s7_character(val);
+        } else {
+            return -1;
+        }
+
+        if (ft == &ffi_type_sint || ft == &ffi_type_sint32) {
+            *(int32_t *)buf = (int32_t)val_i;
+        } else if (ft == &ffi_type_uint || ft == &ffi_type_uint32) {
+            *(uint32_t *)buf = (uint32_t)val_i;
+        } else if (ft == &ffi_type_schar || ft == &ffi_type_sint8) {
+            *(int8_t *)buf = (int8_t)val_i;
+        } else if (ft == &ffi_type_uchar || ft == &ffi_type_uint8) {
+            *(uint8_t *)buf = (uint8_t)val_i;
+        } else if (ft == &ffi_type_sshort || ft == &ffi_type_sint16) {
+            *(int16_t *)buf = (int16_t)val_i;
+        } else if (ft == &ffi_type_ushort || ft == &ffi_type_uint16) {
+            *(uint16_t *)buf = (uint16_t)val_i;
+        } else if (ft == &ffi_type_sint64 || ft == &ffi_type_slong) {
+            *(int64_t *)buf = (int64_t)val_i;
+        } else if (ft == &ffi_type_uint64 || ft == &ffi_type_ulong) {
+            *(uint64_t *)buf = (uint64_t)val_i;
         } else {
             return -1;
         }
@@ -315,6 +408,31 @@ static int write_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_type *f
     if (ft->type == FFI_TYPE_STRUCT) {
         if (s7_is_pair(type_desc)) {
             s7_pointer head = s7_car(type_desc);
+            if (s7_is_symbol(head) && strcmp(s7_symbol_name(head), "array") == 0) {
+                s7_pointer type_arg = s7_cadr(type_desc);
+                if (!s7_is_list(sc, val) && !s7_is_vector(val)) return -1;
+                size_t offset = 0;
+                int size = 0;
+                for (int i = 0; ft->elements[i] != NULL; i++) size++;
+                s7_pointer curr_val = val;
+                for (int i = 0; i < size; i++) {
+                    ffi_type *field_ft = ft->elements[i];
+                    offset = align_to(offset, field_ft->alignment);
+                    s7_pointer item_val;
+                    if (s7_is_vector(val)) {
+                        item_val = s7_vector_ref(sc, val, i);
+                    } else {
+                        if (s7_is_null(sc, curr_val)) return -1;
+                        item_val = s7_car(curr_val);
+                        curr_val = s7_cdr(curr_val);
+                    }
+                    if (write_val(sc, (char *)buf + offset, type_arg, field_ft, item_val) < 0) {
+                        return -1;
+                    }
+                    offset += field_ft->size;
+                }
+                return 0;
+            }
             if (s7_is_symbol(head) && strcmp(s7_symbol_name(head), "union") == 0) {
                 if (!s7_is_pair(val) || !s7_is_pair(s7_cdr(val))) return -1;
                 int field_idx = (int)s7_integer(s7_car(val));
@@ -367,8 +485,29 @@ static int write_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_type *f
 
 static s7_pointer read_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_type *ft) {
     type_desc = resolve_type_desc(sc, type_desc);
-    if (ft == &ffi_type_sint) {
-        return s7_make_integer(sc, *(int *)buf);
+    if (ft == &ffi_type_sint || ft == &ffi_type_sint32) {
+        return s7_make_integer(sc, *(int32_t *)buf);
+    }
+    if (ft == &ffi_type_uint || ft == &ffi_type_uint32) {
+        return s7_make_integer(sc, *(uint32_t *)buf);
+    }
+    if (ft == &ffi_type_schar || ft == &ffi_type_sint8) {
+        return s7_make_integer(sc, *(int8_t *)buf);
+    }
+    if (ft == &ffi_type_uchar || ft == &ffi_type_uint8) {
+        return s7_make_integer(sc, *(uint8_t *)buf);
+    }
+    if (ft == &ffi_type_sshort || ft == &ffi_type_sint16) {
+        return s7_make_integer(sc, *(int16_t *)buf);
+    }
+    if (ft == &ffi_type_ushort || ft == &ffi_type_uint16) {
+        return s7_make_integer(sc, *(uint16_t *)buf);
+    }
+    if (ft == &ffi_type_sint64 || ft == &ffi_type_slong) {
+        return s7_make_integer(sc, *(int64_t *)buf);
+    }
+    if (ft == &ffi_type_uint64 || ft == &ffi_type_ulong) {
+        return s7_make_integer(sc, (s7_int)*(uint64_t *)buf);
     }
     if (ft == &ffi_type_double) {
         return s7_make_real(sc, *(double *)buf);
@@ -387,6 +526,26 @@ static s7_pointer read_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_t
     if (ft->type == FFI_TYPE_STRUCT) {
         if (s7_is_pair(type_desc)) {
             s7_pointer head = s7_car(type_desc);
+            if (s7_is_symbol(head) && strcmp(s7_symbol_name(head), "array") == 0) {
+                s7_pointer type_arg = s7_cadr(type_desc);
+                s7_pointer result = s7_nil(sc);
+                s7_pointer last = s7_nil(sc);
+                size_t offset = 0;
+                for (int i = 0; ft->elements[i] != NULL; i++) {
+                    ffi_type *field_ft = ft->elements[i];
+                    offset = align_to(offset, field_ft->alignment);
+                    s7_pointer val = read_val(sc, (char *)buf + offset, type_arg, field_ft);
+                    s7_pointer cell = s7_cons(sc, val, s7_nil(sc));
+                    if (s7_is_null(sc, result)) {
+                        result = cell;
+                    } else {
+                        s7_set_cdr(last, cell);
+                    }
+                    last = cell;
+                    offset += field_ft->size;
+                }
+                return result;
+            }
             if (s7_is_symbol(head) && strcmp(s7_symbol_name(head), "union") == 0) {
                 s7_pointer fields = s7_cdr(type_desc);
                 s7_pointer result = s7_nil(sc);
@@ -713,6 +872,94 @@ static s7_pointer s7_ffi_call(s7_scheme *sc, s7_pointer args) {
     return result;
 }
 
+static s7_pointer ffi_deref(s7_scheme *sc, s7_pointer args) {
+    s7_pointer ptr_arg = s7_car(args);
+    s7_pointer type_arg = s7_cadr(args);
+    if (!s7_is_c_pointer(ptr_arg)) {
+        return s7_wrong_type_arg_error(sc, "ffi-deref", 1, ptr_arg, "c-pointer");
+    }
+    void *ptr = s7_c_pointer(ptr_arg);
+    if (!ptr) {
+        return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
+                        s7_list(sc, 1, s7_make_string(sc, "dereferencing NULL pointer")));
+    }
+    TypeAlloc *allocs = NULL;
+    ffi_type *ft = parse_ffi_type_rec(sc, type_arg, &allocs);
+    if (!ft) {
+        TypeAlloc *curr_alloc = allocs;
+        while (curr_alloc) {
+            TypeAlloc *next = curr_alloc->next;
+            free(curr_alloc->type->elements);
+            free(curr_alloc->type);
+            free(curr_alloc);
+            curr_alloc = next;
+        }
+        return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
+                        s7_list(sc, 2, s7_make_string(sc, "invalid type descriptor: ~S"), type_arg));
+    }
+    if (ft->type == FFI_TYPE_STRUCT && ft->size == 0) {
+        ffi_cif dummy_cif;
+        ffi_prep_cif(&dummy_cif, FFI_DEFAULT_ABI, 0, ft, NULL);
+    }
+    s7_pointer result = read_val(sc, ptr, type_arg, ft);
+    TypeAlloc *curr_alloc = allocs;
+    while (curr_alloc) {
+        TypeAlloc *next = curr_alloc->next;
+        free(curr_alloc->type->elements);
+        free(curr_alloc->type);
+        free(curr_alloc);
+        curr_alloc = next;
+    }
+    return result;
+}
+
+static s7_pointer ffi_set_bang(s7_scheme *sc, s7_pointer args) {
+    s7_pointer ptr_arg = s7_car(args);
+    s7_pointer type_arg = s7_cadr(args);
+    s7_pointer val_arg = s7_caddr(args);
+    if (!s7_is_c_pointer(ptr_arg)) {
+        return s7_wrong_type_arg_error(sc, "ffi-set!", 1, ptr_arg, "c-pointer");
+    }
+    void *ptr = s7_c_pointer(ptr_arg);
+    if (!ptr) {
+        return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
+                        s7_list(sc, 1, s7_make_string(sc, "writing to NULL pointer")));
+    }
+    TypeAlloc *allocs = NULL;
+    ffi_type *ft = parse_ffi_type_rec(sc, type_arg, &allocs);
+    if (!ft) {
+        TypeAlloc *curr_alloc = allocs;
+        while (curr_alloc) {
+            TypeAlloc *next = curr_alloc->next;
+            free(curr_alloc->type->elements);
+            free(curr_alloc->type);
+            free(curr_alloc);
+            curr_alloc = next;
+        }
+        return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
+                        s7_list(sc, 2, s7_make_string(sc, "invalid type descriptor: ~S"), type_arg));
+    }
+    if (ft->type == FFI_TYPE_STRUCT && ft->size == 0) {
+        ffi_cif dummy_cif;
+        ffi_prep_cif(&dummy_cif, FFI_DEFAULT_ABI, 0, ft, NULL);
+    }
+    int res = write_val(sc, ptr, type_arg, ft, val_arg);
+    TypeAlloc *curr_alloc = allocs;
+    while (curr_alloc) {
+        TypeAlloc *next = curr_alloc->next;
+        free(curr_alloc->type->elements);
+        free(curr_alloc->type);
+        free(curr_alloc);
+        curr_alloc = next;
+    }
+    if (res < 0) {
+        return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
+                        s7_list(sc, 2, s7_make_string(sc, "failed to write value: ~S"), val_arg));
+    }
+    return s7_unspecified(sc);
+}
+
+
 // Lexer states for stripping or capturing delimiters
 enum State {
     STATE_TEXT,
@@ -816,6 +1063,9 @@ int main(int argc, char **argv) {
     s7_define_function(s7, "ffi-sym", ffi_sym, 2, 0, false, "(ffi-sym handle name) finds symbol in library");
     s7_define_function(s7, "ffi-close", ffi_close, 1, 0, false, "(ffi-close handle) closes dynamic library");
     s7_define_function(s7, "ffi-call", s7_ffi_call, 4, 1, false, "(ffi-call func ret-type arg-types arg-vals [nfixed]) invokes foreign function");
+    s7_define_function(s7, "ffi-deref", ffi_deref, 2, 0, false, "(ffi-deref ptr type-desc) dereferences pointer using type description");
+    s7_define_function(s7, "ffi-set!", ffi_set_bang, 3, 0, false, "(ffi-set! ptr type-desc value) writes value to pointer using type description");
+
 
     if (no_template) {
         s7_load(s7, input_file);
