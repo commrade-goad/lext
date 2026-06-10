@@ -223,3 +223,38 @@ You can register and call these in Scheme:
 (ffi-call sdl-destroy-window 'void '(pointer) (list win))
 (ffi-call sdl-quit 'void '() '())
 ```
+
+---
+
+### Helper: Binding C Functions to Scheme Functions (`c-import`)
+
+Instead of invoking `ffi-call` with raw function pointer variables and verbose argument lists every time, you can use a Scheme macro to bind any C function to a clean Scheme function wrapper.
+
+Here is the helper macro:
+```scheme
+(define-macro (c-import scheme-name lib-handle c-name ret-type arg-types . nfixed)
+  (let ((func-ptr (gensym)))
+    `(begin
+       ;; Resolve symbol once at definition time
+       (define ,func-ptr (ffi-sym ,lib-handle ,c-name))
+       ;; Create the Scheme wrapper function
+       (define (,scheme-name . args)
+         (ffi-call ,func-ptr ',ret-type ',arg-types args ,@(if (null? nfixed) '() (list (car nfixed))))))))
+```
+
+#### Usage Example:
+```scheme
+(define libc (ffi-open #f))
+
+;; Import standard functions
+(c-import c-cos libc "cos" double (double))
+(c-import c-puts libc "puts" int (string))
+
+;; Import variadic function (1 fixed type, trailing types auto-inferred)
+(c-import c-printf libc "printf" int (string) 1)
+
+;; Call them naturally like native Scheme functions!
+(c-cos 0.0)                                             ; Returns 1.0
+(c-puts "Hello from bound puts!")
+(c-printf "Formatted output: %s %d %f!\n" "Scheme" 42 3.14)
+```
