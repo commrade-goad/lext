@@ -22,4 +22,18 @@ This text and the \textbf{LaTeX macros} should pass through completely untouched
     Calculated Target Cores & 8 \\ \hline
 \end{tabular}
 
+\section{FFI Test}
+% 1. Open the process address space (which contains standard libs like libc and libm)
+
+
+% 2. Find and invoke double cos(double) from libm
+
+
+
+% 3. Find and invoke int puts(const char*) from libc
+
+
+
+FFI calculated $cos(0.0) = 1.0$.
+
 \end{document}

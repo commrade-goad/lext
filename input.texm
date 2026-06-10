@@ -20,4 +20,18 @@ This text and the \textbf{LaTeX macros} should pass through completely untouched
     Calculated Target Cores & @@(number->string (* 4 2)) \\ \hline
 \end{tabular}
 
+\section{FFI Test}
+% 1. Open the process address space (which contains standard libs like libc and libm)
+@@(define lib (ffi-open #f))
+
+% 2. Find and invoke double cos(double) from libm
+@@(define cos-sym (ffi-sym lib "cos"))
+@@(define cos-val (ffi-call cos-sym 'double '(double) '(0.0)))
+
+% 3. Find and invoke int puts(const char*) from libc
+@@(define puts-sym (ffi-sym lib "puts"))
+@@(ffi-call puts-sym 'int '(string) '("FFI call successful! Hello from libc!"))
+
+FFI calculated $cos(0.0) = @@(number->string cos-val)$.
+
 \end{document}
