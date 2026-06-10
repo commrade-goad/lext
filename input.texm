@@ -34,4 +34,22 @@ This text and the \textbf{LaTeX macros} should pass through completely untouched
 
 FFI calculated $cos(0.0) = @@(number->string cos-val)$.
 
+\section{FFI Struct and Union Test}
+% Load our custom library
+@@(define test-lib (ffi-open "./libtest.so"))
+
+% 1. Test Struct by value
+@@(define add-points-sym (ffi-sym test-lib "add_points"))
+% Type: (struct int int)
+@@(define res-point (ffi-call add-points-sym '(struct int int) '((struct int int) (struct int int)) '((10 20) (30 40))))
+
+% 2. Test Union by value
+@@(define print-union-sym (ffi-sym test-lib "print_union"))
+% Pass union with double: index 1 (meaning double), value 3.14
+@@(define res-union (ffi-call print-union-sym 'double '((union int double) int) '((1 3.14) 1)))
+
+Struct Result: @@(number->string (car res-point)) and @@(number->string (cadr res-point))
+
+Union Result: @@(number->string res-union)
+
 \end{document}
