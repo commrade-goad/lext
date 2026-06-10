@@ -3,38 +3,12 @@
 #include <stdbool.h>
 #include <string.h>
 #include "s7/s7.h"
+#include "helpa.h"
 
 #define VERSTRING  "0.1.0"
 #ifndef HASHVER
 #define HASHVER "unknown"
 #endif
-
-// Dynamic resizing string buffer to capture raw Lisp forms
-typedef struct {
-    char *data;
-    size_t cap;
-    size_t len;
-} Buf;
-
-void buf_init(Buf *b) {
-    b->cap = 1024;
-    b->len = 0;
-    b->data = malloc(b->cap);
-    b->data[0] = '\0';
-}
-
-void buf_push(Buf *b, char c) {
-    if (b->len + 1 >= b->cap) {
-        b->cap *= 2;
-        b->data = realloc(b->data, b->cap);
-    }
-    b->data[b->len++] = c;
-    b->data[b->len] = '\0';
-}
-
-void buf_free(Buf *b) {
-    free(b->data);
-}
 
 #include <dlfcn.h>
 #include <ffi.h>
@@ -161,7 +135,7 @@ static ffi_type *parse_ffi_type_rec(s7_scheme *sc, s7_pointer type_desc, TypeAll
         if (strcmp(name, "pointer") == 0) return &ffi_type_pointer;
         return NULL;
     }
-    
+
     if (s7_is_pair(type_desc)) {
         s7_pointer head = s7_car(type_desc);
         if (s7_is_symbol(head)) {
@@ -170,13 +144,13 @@ static ffi_type *parse_ffi_type_rec(s7_scheme *sc, s7_pointer type_desc, TypeAll
                 s7_pointer fields = s7_cdr(type_desc);
                 int nfields = s7_list_length(sc, fields);
                 if (nfields <= 0) return NULL;
-                
+
                 ffi_type *stype = malloc(sizeof(ffi_type));
                 stype->size = 0;
                 stype->alignment = 0;
                 stype->type = FFI_TYPE_STRUCT;
                 stype->elements = malloc((nfields + 1) * sizeof(ffi_type *));
-                
+
                 s7_pointer curr = fields;
                 for (int i = 0; i < nfields; i++) {
                     ffi_type *ft = parse_ffi_type_rec(sc, s7_car(curr), allocs);
@@ -189,30 +163,30 @@ static ffi_type *parse_ffi_type_rec(s7_scheme *sc, s7_pointer type_desc, TypeAll
                     curr = s7_cdr(curr);
                 }
                 stype->elements[nfields] = NULL;
-                
+
                 TypeAlloc *node = malloc(sizeof(TypeAlloc));
                 node->type = stype;
                 node->next = *allocs;
                 *allocs = node;
-                
+
                 return stype;
             }
             if (strcmp(head_name, "union") == 0) {
                 s7_pointer fields = s7_cdr(type_desc);
                 int nfields = s7_list_length(sc, fields);
                 if (nfields <= 0) return NULL;
-                
+
                 size_t max_size = 0;
                 size_t max_align = 0;
                 bool has_int = false;
-                
+
                 s7_pointer curr = fields;
                 for (int i = 0; i < nfields; i++) {
                     s7_pointer field_type = s7_car(curr);
                     if (type_has_integer(sc, field_type)) {
                         has_int = true;
                     }
-                    
+
                     TypeAlloc *temp_allocs = NULL;
                     ffi_type *ft = parse_ffi_type_rec(sc, field_type, &temp_allocs);
                     if (!ft) {
@@ -226,15 +200,15 @@ static ffi_type *parse_ffi_type_rec(s7_scheme *sc, s7_pointer type_desc, TypeAll
                         }
                         return NULL;
                     }
-                    
+
                     if (ft->type == FFI_TYPE_STRUCT && ft->size == 0) {
                         ffi_cif dummy_cif;
                         ffi_prep_cif(&dummy_cif, FFI_DEFAULT_ABI, 0, ft, NULL);
                     }
-                    
+
                     if (ft->size > max_size) max_size = ft->size;
                     if (ft->alignment > max_align) max_align = ft->alignment;
-                    
+
                     TypeAlloc *curr_alloc = temp_allocs;
                     while (curr_alloc) {
                         TypeAlloc *next = curr_alloc->next;
@@ -243,12 +217,12 @@ static ffi_type *parse_ffi_type_rec(s7_scheme *sc, s7_pointer type_desc, TypeAll
                         free(curr_alloc);
                         curr_alloc = next;
                     }
-                    
+
                     curr = s7_cdr(curr);
                 }
-                
+
                 size_t union_size = align_to(max_size, max_align);
-                
+
                 ffi_type *align_type = &ffi_type_schar;
                 if (max_align == 8) {
                     if (has_int) align_type = &ffi_type_sint64;
@@ -259,9 +233,9 @@ static ffi_type *parse_ffi_type_rec(s7_scheme *sc, s7_pointer type_desc, TypeAll
                 } else if (max_align == 2) {
                     align_type = &ffi_type_sshort;
                 }
-                
+
                 size_t num_elements = union_size / align_type->size;
-                
+
                 ffi_type *stype = malloc(sizeof(ffi_type));
                 stype->size = 0;
                 stype->alignment = 0;
@@ -271,17 +245,17 @@ static ffi_type *parse_ffi_type_rec(s7_scheme *sc, s7_pointer type_desc, TypeAll
                     stype->elements[i] = align_type;
                 }
                 stype->elements[num_elements] = NULL;
-                
+
                 TypeAlloc *node = malloc(sizeof(TypeAlloc));
                 node->type = stype;
                 node->next = *allocs;
                 *allocs = node;
-                
+
                 return stype;
             }
         }
     }
-    
+
     return NULL;
 }
 
@@ -348,13 +322,13 @@ static int write_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_type *f
                 s7_pointer fields = s7_cdr(type_desc);
                 s7_pointer field_type_desc = s7_list_ref(sc, fields, field_idx);
                 if (s7_is_null(sc, field_type_desc)) return -1;
-                
+
                 TypeAlloc *temp_allocs = NULL;
                 ffi_type *field_ft = parse_ffi_type_rec(sc, field_type_desc, &temp_allocs);
                 if (!field_ft) return -1;
-                
+
                 int res = write_val(sc, buf, field_type_desc, field_ft, field_val);
-                
+
                 TypeAlloc *curr_alloc = temp_allocs;
                 while (curr_alloc) {
                     TypeAlloc *next = curr_alloc->next;
@@ -370,12 +344,12 @@ static int write_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_type *f
                 s7_pointer fields = s7_cdr(type_desc);
                 s7_pointer curr_val = val;
                 s7_pointer curr_field = fields;
-                
+
                 for (int i = 0; ft->elements[i] != NULL; i++) {
                     if (s7_is_null(sc, curr_val)) return -1;
                     ffi_type *field_ft = ft->elements[i];
                     offset = align_to(offset, field_ft->alignment);
-                    
+
                     s7_pointer field_type_desc = s7_car(curr_field);
                     if (write_val(sc, (char *)buf + offset, field_type_desc, field_ft, s7_car(curr_val)) < 0) {
                         return -1;
@@ -418,12 +392,12 @@ static s7_pointer read_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_t
                 s7_pointer result = s7_nil(sc);
                 s7_pointer last = s7_nil(sc);
                 s7_pointer curr_field = fields;
-                
+
                 while (s7_is_pair(curr_field)) {
                     s7_pointer field_type_desc = s7_car(curr_field);
                     TypeAlloc *temp_allocs = NULL;
                     ffi_type *field_ft = parse_ffi_type_rec(sc, field_type_desc, &temp_allocs);
-                    
+
                     s7_pointer val = s7_nil(sc);
                     if (field_ft) {
                         val = read_val(sc, buf, field_type_desc, field_ft);
@@ -436,7 +410,7 @@ static s7_pointer read_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_t
                             curr_alloc = next;
                         }
                     }
-                    
+
                     s7_pointer cell = s7_cons(sc, val, s7_nil(sc));
                     if (s7_is_null(sc, result)) {
                         result = cell;
@@ -444,7 +418,7 @@ static s7_pointer read_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_t
                         s7_set_cdr(last, cell);
                     }
                     last = cell;
-                    
+
                     curr_field = s7_cdr(curr_field);
                 }
                 return result;
@@ -454,14 +428,14 @@ static s7_pointer read_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_t
                 s7_pointer last = s7_nil(sc);
                 s7_pointer curr_field = fields;
                 size_t offset = 0;
-                
+
                 for (int i = 0; ft->elements[i] != NULL; i++) {
                     ffi_type *field_ft = ft->elements[i];
                     offset = align_to(offset, field_ft->alignment);
-                    
+
                     s7_pointer field_type_desc = s7_car(curr_field);
                     s7_pointer val = read_val(sc, (char *)buf + offset, field_type_desc, field_ft);
-                    
+
                     s7_pointer cell = s7_cons(sc, val, s7_nil(sc));
                     if (s7_is_null(sc, result)) {
                         result = cell;
@@ -469,7 +443,7 @@ static s7_pointer read_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_t
                         s7_set_cdr(last, cell);
                     }
                     last = cell;
-                    
+
                     offset += field_ft->size;
                     curr_field = s7_cdr(curr_field);
                 }
@@ -874,9 +848,9 @@ int main(int argc, char **argv) {
             case STATE_AT2:
                 if (c == '(') {
                     // Delimiter matches "@@(". Initialize macro buffer.
-                    Buf lisp_buf;
-                    buf_init(&lisp_buf);
-                    buf_push(&lisp_buf, '('); // Capture the opening parenthesis
+                    HStr lisp_buf;
+                    hstr_init(&lisp_buf);
+                    hstr_push(&lisp_buf, '('); // Capture the opening parenthesis
 
                     int depth = 1;
                     int lc;
@@ -887,13 +861,13 @@ int main(int argc, char **argv) {
                     // Safely track internal token blocks to compute exact tree balance
                     while (depth > 0 && (lc = fgetc(in)) != EOF) {
                         if (in_comment) {
-                            buf_push(&lisp_buf, lc);
+                            hstr_push(&lisp_buf, lc);
                             if (lc == '\n') in_comment = false;
                             continue;
                         }
 
                         if (escape) {
-                            buf_push(&lisp_buf, lc);
+                            hstr_push(&lisp_buf, lc);
                             escape = false;
                             continue;
                         }
@@ -902,23 +876,23 @@ int main(int argc, char **argv) {
                             if (escape_enabled && in_string) {
                                 int next_c = fgetc(in);
                                 if (next_c == '"') {
-                                    buf_push(&lisp_buf, '\\');
-                                    buf_push(&lisp_buf, '"');
+                                    hstr_push(&lisp_buf, '\\');
+                                    hstr_push(&lisp_buf, '"');
                                 } else {
-                                    buf_push(&lisp_buf, '\\');
-                                    buf_push(&lisp_buf, '\\');
+                                    hstr_push(&lisp_buf, '\\');
+                                    hstr_push(&lisp_buf, '\\');
                                     if (next_c != EOF) {
                                         ungetc(next_c, in);
                                     }
                                 }
                             } else {
-                                buf_push(&lisp_buf, '\\');
+                                hstr_push(&lisp_buf, '\\');
                                 escape = true;
                             }
                             continue;
                         }
 
-                        buf_push(&lisp_buf, lc);
+                        hstr_push(&lisp_buf, lc);
                         if (lc == '"') {
                             in_string = !in_string;
                             continue;
@@ -937,22 +911,22 @@ int main(int argc, char **argv) {
 
                     if (depth > 0) {
                         fprintf(stderr, "ERR: Unmatched parenthesis inside Lisp block.\n");
-                        buf_free(&lisp_buf);
+                        hstr_free(&lisp_buf);
                         fclose(in);
                         fclose(out);
                         return EXIT_FAILURE;
                     }
 
                     // Evaluate expression immediately inside s7 environment
-                    s7_pointer res = s7_eval_c_string(s7, lisp_buf.data);
-                    
-                    // Streaming design rule: Evaluate definitions silently. 
+                    s7_pointer res = s7_eval_c_string(s7, (char *)lisp_buf.dt);
+
+                    // Streaming design rule: Evaluate definitions silently.
                     // Only dump explicitly computed string constants into target file.
                     if (s7_is_string(res)) {
                         fputs(s7_string(res), out);
                     }
 
-                    buf_free(&lisp_buf);
+                    hstr_free(&lisp_buf);
                     state = STATE_TEXT;
                 } else {
                     // Fallback when sequence was just false-alarm standard text
