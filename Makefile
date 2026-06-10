@@ -8,7 +8,7 @@ FFI_CFLAGS := $(shell pkg-config --cflags libffi 2>/dev/null || echo "-I/usr/lib
 FFI_LIBS := $(shell pkg-config --libs libffi 2>/dev/null || echo "-lffi")
 
 # Target binary
-texm: main.o s7.o
+lext: main.o s7.o
 	$(CC) main.o s7.o -o lext $(LIBS) $(FFI_LIBS)
 
 # Compiles your logic (Takes milliseconds)
@@ -20,4 +20,4 @@ s7.o: s7/s7.c s7/s7.h
 	$(CC) $(CFLAGS) -c s7/s7.c -o s7.o
 
 clean:
-	rm -f *.o texm lext
+	rm -f *.o lext lext
