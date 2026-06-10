@@ -1,0 +1,28 @@
+\documentclass{article}
+\begin{document}
+
+@@(define sdl (ffi-open "libSDL2.so"))
+
+@@(define sdl-init (ffi-sym sdl "SDL_Init"))
+@@(define sdl-create-window (ffi-sym sdl "SDL_CreateWindow"))
+@@(define sdl-delay (ffi-sym sdl "SDL_Delay"))
+@@(define sdl-destroy-window (ffi-sym sdl "SDL_DestroyWindow"))
+@@(define sdl-quit (ffi-sym sdl "SDL_Quit"))
+
+% Initialize SDL2 video subsystem (32 = SDL_INIT_VIDEO)
+@@(ffi-call sdl-init 'int '(int) '(32))
+
+% Create a window: SDL_CreateWindow("FFI SDL Window", 0x1FFF0000, 0x1FFF0000, 640, 480, 4)
+% Wait, 0x1FFF0000 is 536805376. 4 is SDL_WINDOW_SHOWN.
+@@(define win (ffi-call sdl-create-window 'pointer '(string int int int int int) '("FFI SDL Window" 536805376 536805376 640 480 4)))
+
+% Wait for 3 seconds (3000 ms)
+@@(ffi-call sdl-delay 'void '(int) '(3000))
+
+% Cleanup
+@@(ffi-call sdl-destroy-window 'void '(pointer) (list win))
+@@(ffi-call sdl-quit 'void '() '())
+
+SDL2 Window opened and closed successfully via FFI!
+
+\end{document}
