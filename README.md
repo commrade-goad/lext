@@ -16,7 +16,6 @@ It can operate in two modes:
 - **Command-Line Interface**:
   - Run pure scripts with `-s` or `--no-template`.
   - Auto-escape backslashes with `-e` / `--escape`.
-  - Embedded versioning linked with Git commit hash.
 
 ---
 
@@ -110,13 +109,14 @@ Registers a named type alias (such as a struct, union, or enum) in the FFI envir
 
 ### Calling Functions
 
-#### `(ffi-call func ret-type arg-types arg-vals)`
+#### `(ffi-call func ret-type arg-types arg-vals [nfixed])`
 Invokes a resolved function pointer.
 - **Arguments**:
   - `func`: Function pointer handle returned by `ffi-sym`.
   - `ret-type` (symbol/list): The return type descriptor.
-  - `arg-types` (list of symbols/lists): Descriptors for the arguments.
+  - `arg-types` (list of symbols/lists): Descriptors for the arguments (for variadic calls, include all types passed).
   - `arg-vals` (list of values): Scheme arguments corresponding to the type list.
+  - `nfixed` (integer, optional): The number of fixed arguments. If specified and greater than 0, the function is called as a variadic function (using `ffi_prep_cif_var` internally).
 
 ---
 
@@ -149,6 +149,10 @@ Invokes a resolved function pointer.
 ;; Call int puts(const char*) from libc
 (define puts-sym (ffi-sym lib "puts"))
 (ffi-call puts-sym 'int '(string) '("Hello from libc!"))
+
+;; Call variadic int printf(const char* format, ...) from libc (1 fixed arg, 3 total args)
+(define printf-sym (ffi-sym lib "printf"))
+(ffi-call printf-sym 'int '(string string int) '("Hello %s, your lucky number is %d!\n" "Lisp Hacker" 42) 1)
 ```
 
 ### Example 2: Structs and Unions by Value

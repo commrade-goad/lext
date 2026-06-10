@@ -466,6 +466,15 @@ static s7_pointer s7_ffi_call(s7_scheme *sc, s7_pointer args) {
     s7_pointer arg_types_list = s7_caddr(args);
     s7_pointer arg_vals_list = s7_cadddr(args);
 
+    s7_pointer nfixed_arg = s7_nil(sc);
+    s7_pointer temp_args = args;
+    for (int i = 0; i < 4 && s7_is_pair(temp_args); i++) {
+        temp_args = s7_cdr(temp_args);
+    }
+    if (s7_is_pair(temp_args)) {
+        nfixed_arg = s7_car(temp_args);
+    }
+
     if (!s7_is_c_pointer(func_arg)) {
         return s7_wrong_type_arg_error(sc, "ffi-call", 1, func_arg, "c-pointer");
     }
@@ -523,8 +532,12 @@ static s7_pointer s7_ffi_call(s7_scheme *sc, s7_pointer args) {
         t_curr = s7_cdr(t_curr);
     }
 
-    ffi_cif cif;
-    if (ffi_prep_cif(&cif, FFI_DEFAULT_ABI, nargs, ret_type, arg_types) != FFI_OK) {
+    int nfixed = -1;
+    if (s7_is_integer(nfixed_arg)) {
+        nfixed = (int)s7_integer(nfixed_arg);
+    }
+
+    if (nfixed > 0 && nfixed > nargs) {
         TypeAlloc *curr_alloc = allocs;
         while (curr_alloc) {
             TypeAlloc *next = curr_alloc->next;
@@ -535,7 +548,29 @@ static s7_pointer s7_ffi_call(s7_scheme *sc, s7_pointer args) {
         }
         free(arg_types);
         return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
-                        s7_list(sc, 1, s7_make_string(sc, "ffi_prep_cif failed")));
+                        s7_list(sc, 1, s7_make_string(sc, "nfixed cannot be greater than total arguments count")));
+    }
+
+    ffi_cif cif;
+    ffi_status prep_status;
+    if (nfixed > 0) {
+        prep_status = ffi_prep_cif_var(&cif, FFI_DEFAULT_ABI, nfixed, nargs, ret_type, arg_types);
+    } else {
+        prep_status = ffi_prep_cif(&cif, FFI_DEFAULT_ABI, nargs, ret_type, arg_types);
+    }
+
+    if (prep_status != FFI_OK) {
+        TypeAlloc *curr_alloc = allocs;
+        while (curr_alloc) {
+            TypeAlloc *next = curr_alloc->next;
+            free(curr_alloc->type->elements);
+            free(curr_alloc->type);
+            free(curr_alloc);
+            curr_alloc = next;
+        }
+        free(arg_types);
+        return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
+                        s7_list(sc, 1, s7_make_string(sc, nfixed > 0 ? "ffi_prep_cif_var failed" : "ffi_prep_cif failed")));
     }
 
     void **arg_values = malloc(nargs * sizeof(void *));
@@ -732,7 +767,7 @@ int main(int argc, char **argv) {
     s7_define_function(s7, "ffi-open", ffi_open, 1, 0, false, "(ffi-open path) loads dynamic library");
     s7_define_function(s7, "ffi-sym", ffi_sym, 2, 0, false, "(ffi-sym handle name) finds symbol in library");
     s7_define_function(s7, "ffi-close", ffi_close, 1, 0, false, "(ffi-close handle) closes dynamic library");
-    s7_define_function(s7, "ffi-call", s7_ffi_call, 4, 0, false, "(ffi-call func ret-type arg-types arg-vals) invokes foreign function");
+    s7_define_function(s7, "ffi-call", s7_ffi_call, 4, 1, false, "(ffi-call func ret-type arg-types arg-vals [nfixed]) invokes foreign function");
 
     if (no_template) {
         s7_load(s7, input_file);
