@@ -114,9 +114,9 @@ Invokes a resolved function pointer.
 - **Arguments**:
   - `func`: Function pointer handle returned by `ffi-sym`.
   - `ret-type` (symbol/list): The return type descriptor.
-  - `arg-types` (list of symbols/lists): Descriptors for the arguments (for variadic calls, include all types passed).
-  - `arg-vals` (list of values): Scheme arguments corresponding to the type list.
-  - `nfixed` (integer, optional): The number of fixed arguments. If specified and greater than 0, the function is called as a variadic function (using `ffi_prep_cif_var` internally).
+  - `arg-types` (list of symbols/lists): Descriptors for the arguments. For variadic calls, you only need to specify the types of the fixed arguments; the types of any trailing variadic arguments will be automatically inferred from their Scheme values.
+  - `arg-vals` (list of values): Scheme arguments.
+  - `nfixed` (integer, optional): The number of fixed arguments. If specified and greater than 0, the function is called as a variadic function (using `ffi_prep_cif_var` internally). If `nfixed` is specified, `arg-types` only needs to list the types for the fixed arguments; the remaining variadic arguments are automatically inferred (`integer`/`boolean`/`character` -> `'int`, `real` -> `'double`, `string` -> `'string`, `c-pointer`/`nil` -> `'pointer`).
 
 ---
 
@@ -151,8 +151,9 @@ Invokes a resolved function pointer.
 (ffi-call puts-sym 'int '(string) '("Hello from libc!"))
 
 ;; Call variadic int printf(const char* format, ...) from libc (1 fixed arg, 3 total args)
+;; Note: We only need to list the fixed type '(string), the rest are inferred!
 (define printf-sym (ffi-sym lib "printf"))
-(ffi-call printf-sym 'int '(string string int) '("Hello %s, your lucky number is %d!\n" "Lisp Hacker" 42) 1)
+(ffi-call printf-sym 'int '(string) '("Hello %s, your lucky number is %d and float is %f!\n" "Lisp Hacker" 42 3.14) 1)
 ```
 
 ### Example 2: Structs and Unions by Value

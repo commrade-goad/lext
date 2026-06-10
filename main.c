@@ -295,15 +295,35 @@ typedef union {
 static int write_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_type *ft, s7_pointer val) {
     type_desc = resolve_type_desc(sc, type_desc);
     if (ft == &ffi_type_sint) {
-        *(int *)buf = (int)s7_integer(val);
+        if (s7_is_integer(val)) {
+            *(int *)buf = (int)s7_integer(val);
+        } else if (s7_is_boolean(val)) {
+            *(int *)buf = (s7_boolean(sc, val) ? 1 : 0);
+        } else if (s7_is_character(val)) {
+            *(int *)buf = (int)s7_character(val);
+        } else {
+            return -1;
+        }
         return 0;
     }
     if (ft == &ffi_type_double) {
-        *(double *)buf = s7_real(val);
+        if (s7_is_real(val)) {
+            *(double *)buf = s7_real(val);
+        } else if (s7_is_integer(val)) {
+            *(double *)buf = (double)s7_integer(val);
+        } else {
+            return -1;
+        }
         return 0;
     }
     if (ft == &ffi_type_float) {
-        *(float *)buf = (float)s7_real(val);
+        if (s7_is_real(val)) {
+            *(float *)buf = (float)s7_real(val);
+        } else if (s7_is_integer(val)) {
+            *(float *)buf = (float)s7_integer(val);
+        } else {
+            return -1;
+        }
         return 0;
     }
     if (ft == &ffi_type_pointer) {
@@ -496,26 +516,16 @@ static s7_pointer s7_ffi_call(s7_scheme *sc, s7_pointer args) {
                         s7_list(sc, 2, s7_make_string(sc, "invalid return type: ~S"), ret_type_arg));
     }
 
-    int nargs = s7_list_length(sc, arg_types_list);
-    if (nargs != s7_list_length(sc, arg_vals_list)) {
-        TypeAlloc *curr_alloc = allocs;
-        while (curr_alloc) {
-            TypeAlloc *next = curr_alloc->next;
-            free(curr_alloc->type->elements);
-            free(curr_alloc->type);
-            free(curr_alloc);
-            curr_alloc = next;
-        }
-        return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
-                        s7_list(sc, 1, s7_make_string(sc, "argument types and values count mismatch")));
+    int nargs = s7_list_length(sc, arg_vals_list);
+    int ntypes = s7_list_length(sc, arg_types_list);
+
+    int nfixed = -1;
+    if (s7_is_integer(nfixed_arg)) {
+        nfixed = (int)s7_integer(nfixed_arg);
     }
 
-    ffi_type **arg_types = malloc(nargs * sizeof(ffi_type *));
-    s7_pointer t_curr = arg_types_list;
-    for (int i = 0; i < nargs; i++) {
-        s7_pointer t_sym = s7_car(t_curr);
-        ffi_type *t = parse_ffi_type_rec(sc, t_sym, &allocs);
-        if (!t) {
+    if (nfixed > 0) {
+        if (ntypes < nfixed) {
             TypeAlloc *curr_alloc = allocs;
             while (curr_alloc) {
                 TypeAlloc *next = curr_alloc->next;
@@ -524,31 +534,91 @@ static s7_pointer s7_ffi_call(s7_scheme *sc, s7_pointer args) {
                 free(curr_alloc);
                 curr_alloc = next;
             }
-            free(arg_types);
             return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
-                            s7_list(sc, 2, s7_make_string(sc, "invalid argument type: ~S"), t_sym));
+                            s7_list(sc, 1, s7_make_string(sc, "types list must cover at least the fixed arguments")));
         }
-        arg_types[i] = t;
-        t_curr = s7_cdr(t_curr);
+        if (nfixed > nargs) {
+            TypeAlloc *curr_alloc = allocs;
+            while (curr_alloc) {
+                TypeAlloc *next = curr_alloc->next;
+                free(curr_alloc->type->elements);
+                free(curr_alloc->type);
+                free(curr_alloc);
+                curr_alloc = next;
+            }
+            return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
+                            s7_list(sc, 1, s7_make_string(sc, "nfixed cannot be greater than total arguments count")));
+        }
+    } else {
+        if (ntypes != nargs) {
+            TypeAlloc *curr_alloc = allocs;
+            while (curr_alloc) {
+                TypeAlloc *next = curr_alloc->next;
+                free(curr_alloc->type->elements);
+                free(curr_alloc->type);
+                free(curr_alloc);
+                curr_alloc = next;
+            }
+            return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
+                            s7_list(sc, 1, s7_make_string(sc, "argument types and values count mismatch")));
+        }
     }
 
-    int nfixed = -1;
-    if (s7_is_integer(nfixed_arg)) {
-        nfixed = (int)s7_integer(nfixed_arg);
-    }
+    ffi_type **arg_types = malloc(nargs * sizeof(ffi_type *));
+    s7_pointer *resolved_type_descs = malloc(nargs * sizeof(s7_pointer));
+    s7_pointer t_curr = arg_types_list;
 
-    if (nfixed > 0 && nfixed > nargs) {
-        TypeAlloc *curr_alloc = allocs;
-        while (curr_alloc) {
-            TypeAlloc *next = curr_alloc->next;
-            free(curr_alloc->type->elements);
-            free(curr_alloc->type);
-            free(curr_alloc);
-            curr_alloc = next;
+    for (int i = 0; i < nargs; i++) {
+        if (i < ntypes) {
+            s7_pointer t_sym = s7_car(t_curr);
+            ffi_type *t = parse_ffi_type_rec(sc, t_sym, &allocs);
+            if (!t) {
+                TypeAlloc *curr_alloc = allocs;
+                while (curr_alloc) {
+                    TypeAlloc *next = curr_alloc->next;
+                    free(curr_alloc->type->elements);
+                    free(curr_alloc->type);
+                    free(curr_alloc);
+                    curr_alloc = next;
+                }
+                free(arg_types);
+                free(resolved_type_descs);
+                return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
+                                s7_list(sc, 2, s7_make_string(sc, "invalid argument type: ~S"), t_sym));
+            }
+            arg_types[i] = t;
+            resolved_type_descs[i] = t_sym;
+            t_curr = s7_cdr(t_curr);
+        } else {
+            // Infer type from Scheme value
+            s7_pointer val = s7_list_ref(sc, arg_vals_list, i);
+            if (s7_is_integer(val) || s7_is_boolean(val) || s7_is_character(val)) {
+                arg_types[i] = &ffi_type_sint;
+                resolved_type_descs[i] = s7_make_symbol(sc, "int");
+            } else if (s7_is_real(val)) {
+                arg_types[i] = &ffi_type_double;
+                resolved_type_descs[i] = s7_make_symbol(sc, "double");
+            } else if (s7_is_string(val)) {
+                arg_types[i] = &ffi_type_pointer;
+                resolved_type_descs[i] = s7_make_symbol(sc, "string");
+            } else if (s7_is_c_pointer(val) || s7_is_null(sc, val)) {
+                arg_types[i] = &ffi_type_pointer;
+                resolved_type_descs[i] = s7_make_symbol(sc, "pointer");
+            } else {
+                TypeAlloc *curr_alloc = allocs;
+                while (curr_alloc) {
+                    TypeAlloc *next = curr_alloc->next;
+                    free(curr_alloc->type->elements);
+                    free(curr_alloc->type);
+                    free(curr_alloc);
+                    curr_alloc = next;
+                }
+                free(arg_types);
+                free(resolved_type_descs);
+                return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
+                                s7_list(sc, 2, s7_make_string(sc, "could not infer type for variadic argument: ~S"), val));
+            }
         }
-        free(arg_types);
-        return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
-                        s7_list(sc, 1, s7_make_string(sc, "nfixed cannot be greater than total arguments count")));
     }
 
     ffi_cif cif;
@@ -569,6 +639,7 @@ static s7_pointer s7_ffi_call(s7_scheme *sc, s7_pointer args) {
             curr_alloc = next;
         }
         free(arg_types);
+        free(resolved_type_descs);
         return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
                         s7_list(sc, 1, s7_make_string(sc, nfixed > 0 ? "ffi_prep_cif_var failed" : "ffi_prep_cif failed")));
     }
@@ -580,7 +651,7 @@ static s7_pointer s7_ffi_call(s7_scheme *sc, s7_pointer args) {
     for (int i = 0; i < nargs; i++) {
         ffi_type *t = arg_types[i];
         s7_pointer val = s7_car(v_curr);
-        s7_pointer t_sym = s7_list_ref(sc, arg_types_list, i);
+        s7_pointer t_sym = resolved_type_descs[i];
 
         if (t->type == FFI_TYPE_STRUCT) {
             void *struct_buf = malloc(t->size);
@@ -592,6 +663,7 @@ static s7_pointer s7_ffi_call(s7_scheme *sc, s7_pointer args) {
                 free(arg_data);
                 free(arg_values);
                 free(arg_types);
+                free(resolved_type_descs);
                 TypeAlloc *curr_alloc = allocs;
                 while (curr_alloc) {
                     TypeAlloc *next = curr_alloc->next;
@@ -615,6 +687,7 @@ static s7_pointer s7_ffi_call(s7_scheme *sc, s7_pointer args) {
                 free(arg_data);
                 free(arg_values);
                 free(arg_types);
+                free(resolved_type_descs);
                 free(p_val);
                 TypeAlloc *curr_alloc = allocs;
                 while (curr_alloc) {
@@ -651,6 +724,7 @@ static s7_pointer s7_ffi_call(s7_scheme *sc, s7_pointer args) {
     free(arg_data);
     free(arg_values);
     free(arg_types);
+    free(resolved_type_descs);
     free(ret_buf);
 
     TypeAlloc *curr_alloc = allocs;
