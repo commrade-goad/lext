@@ -95,43 +95,73 @@ Registers a named type alias (such as a struct, union, or enum) in the FFI envir
 #### Supported Type Descriptors
 - **Primitive Types**:
   - `'void`: No return value.
-  - `'int`: Signed integer.
-  - `'enum`: Signed integer (treated identically to `'int`).
+  - `'int` / `'enum`: Standard signed integer.
   - `'double`: Double-precision float.
   - `'float`: Single-precision float.
   - `'string`: Maps a Scheme string to `char *` and automatically handles C `char *` to Scheme string conversion on return.
   - `'pointer`: A generic void pointer (`void *`).
+  - **Exact-width Integers & Characters**:
+    - `'char`, `'schar`, `'uchar`: 8-bit signed/unsigned char types.
+    - `'int8`, `'uint8`: 8-bit signed/unsigned integer.
+    - `'short`, `'ushort`, `'int16`, `'uint16`: 16-bit signed/unsigned integer.
+    - `'int32`, `'uint32`: 32-bit signed/unsigned integer.
+    - `'long`, `'ulong`: Machine-width signed/unsigned long.
+    - `'int64`, `'uint64`: 64-bit signed/unsigned integer.
 - **Compound Types**:
-  - **Structs**: `'(struct type1 type2 ...)`
-  - **Unions**: `'(union type1 type2 ...)`
+  - **Structs**:
+    - Flat: `'(struct type1 type2 ...)`
+    - Labeled: `'(struct (type1 label1) (type2 label2) ...)`
+  - **Unions**:
+    - Flat: `'(union type1 type2 ...)`
+    - Labeled: `'(union (type1 label1) (type2 label2) ...)`
+  - **Arrays**: `'(array type size)`
+    - Represents a contiguous array of `size` elements of type `type`. Translated internally to a compatible struct layout.
 
 ---
 
-### Calling Functions
+### Pointer Dereferencing & Modification
 
-#### `(ffi-call func ret-type arg-types arg-vals [nfixed])`
-Invokes a resolved function pointer.
+#### `(ffi-deref ptr type-desc)`
+Dereferences a C pointer handle and decodes the memory according to the specified type layout.
 - **Arguments**:
-  - `func`: Function pointer handle returned by `ffi-sym`.
-  - `ret-type` (symbol/list): The return type descriptor.
-  - `arg-types` (list of symbols/lists): Descriptors for the arguments. For variadic calls, you only need to specify the types of the fixed arguments; the types of any trailing variadic arguments will be automatically inferred from their Scheme values.
-  - `arg-vals` (list of values): Scheme arguments.
-  - `nfixed` (integer, optional): The number of fixed arguments. If specified and greater than 0, the function is called as a variadic function (using `ffi_prep_cif_var` internally). If `nfixed` is specified, `arg-types` only needs to list the types for the fixed arguments; the remaining variadic arguments are automatically inferred (`integer`/`boolean`/`character` -> `'int`, `real` -> `'double`, `string` -> `'string`, `c-pointer`/`nil` -> `'pointer`).
+  - `ptr`: C pointer handle (returned by FFI calls).
+  - `type-desc` (symbol/list): The type layout descriptor.
+- **Returns**: Decoded Scheme representation of the memory.
+
+#### `(ffi-set! ptr type-desc value)`
+Serializes and writes a Scheme value to the memory address pointed to by `ptr`.
+- **Arguments**:
+  - `ptr`: C pointer handle.
+  - `type-desc` (symbol/list): The type layout descriptor.
+  - `value`: Scheme representation (e.g., flat list or association list for structs).
 
 ---
 
 ### Data Mapping Details
 
 #### Struct Mapping
-- **To C**: Pass a flat list of values in order: `(val1 val2 ...)`.
-  *Example*: For `'(struct int int)`, pass `(10 20)`.
-- **From C**: Returns a flat list representing the struct fields: `(val1 val2 ...)`.
+- **Flat Structs**:
+  - **To C**: Pass a flat list of values in order: `(val1 val2 ...)`.
+    *Example*: For `'(struct int int)`, pass `(10 20)`.
+  - **From C**: Returns a flat list representing the struct fields: `(val1 val2 ...)`.
+- **Labeled Structs**:
+  - **To C**: Pass either a flat list `(val1 val2 ...)` or an association list `((label1 . val1) (label2 . val2) ...)`.
+  - **From C**: Returns an association list mapping labels to decoded values: `((label1 . val1) (label2 . val2) ...)`.
 
 #### Union Mapping
-- **To C**: Pass a list containing the 0-indexed position of the active union field and its value: `(active_field_index active_field_val)`.
-  *Example*: Given `(ffi-typedef 'IntOrDouble '(union int double))`, to pass the double `3.14` (index 1), pass `'(1 3.14)`.
-- **From C**: Returns a list containing the union memory decoded *separately* as every possible member type: `(as_type1 as_type2 ...)`.
-  *Example*: Reading an `IntOrDouble` union containing `3.14` returns a list like `(1074339512 3.14)`.
+- **Flat Unions**:
+  - **To C**: Pass a list containing the 0-indexed position of the active union field and its value: `(active_field_index active_field_val)`.
+    *Example*: Given `(ffi-typedef 'IntOrDouble '(union int double))`, to pass the double `3.14` (index 1), pass `'(1 3.14)`.
+  - **From C**: Returns a list containing the union memory decoded *separately* as every possible member type: `(as_type1 as_type2 ...)`.
+    *Example*: Reading an `IntOrDouble` union containing `3.14` returns a list like `(1074339512 3.14)`.
+- **Labeled Unions**:
+  - **To C**: Pass either `(active_field_index active_field_val)` or `(active_field_label active_field_val)`.
+  - **From C**: Returns a labeled association list showing all slots: `((label1 . as_type1) (label2 . as_type2) ...)`.
+
+#### Array Mapping
+- **To C**: Pass a flat list of items `(item1 item2 ...)` or a vector `#(item1 item2 ...)`.
+- **From C**: Returns a flat list of items: `(item1 item2 ...)`.
+
 
 ---
 
@@ -224,7 +254,93 @@ You can register and call these in Scheme:
 (ffi-call sdl-quit 'void '() '())
 ```
 
+### Example 4: SDL2 Event Polling with Pointer Casting
+Below is a complete loop that clears the screen to blue, polls events, checks their type via casting, and exits when closed or after 5 seconds:
+
+```scheme
+(define sdl (ffi-open "libSDL2.so"))
+
+;; Constants
+(define SDL_RENDERER_ACCELERATED 2)
+(define SDL_INIT_VIDEO 32)
+(define SDL_QUIT #x100)
+(define SDL_KEYDOWN #x300)
+(define SDL_MOUSEMOTION #x400)
+
+;; Imports
+(c-import sdl-init                 sdl "SDL_Init"               int     (int))
+(c-import sdl-create-window        sdl "SDL_CreateWindow"       pointer (string int int int int int))
+(c-import sdl-create-renderer      sdl "SDL_CreateRenderer"     pointer (pointer int int))
+(c-import sdl-set-render-drawcolor sdl "SDL_SetRenderDrawColor" void    (pointer int int int int))
+(c-import sdl-render-clear         sdl "SDL_RenderClear"        void    (pointer))
+(c-import sdl-render-present       sdl "SDL_RenderPresent"      void    (pointer))
+(c-import sdl-delay                sdl "SDL_Delay"              void    (int))
+(c-import sdl-destroy-window       sdl "SDL_DestroyWindow"      void    (pointer))
+(c-import sdl-quit                 sdl "SDL_Quit"               void    ())
+(c-import sdl-pollevent            sdl "SDL_PollEvent"          int     (pointer))
+(c-import sdl-get-ticks            sdl "SDL_GetTicks"           int     ())
+
+(define libc (ffi-open #f))
+(c-import malloc libc "malloc" pointer (int))
+(c-import free   libc "free"   void    (pointer))
+
+;; Define event-specific layouts
+(ffi-typedef 'SDL_KeyboardEvent
+             '(struct (uint32 type)
+                      (uint32 timestamp)
+                      (uint32 windowID)
+                      (uint8 state)
+                      (uint8 repeat)
+                      (uint8 padding2)
+                      (uint8 padding3)
+                      (int32 scancode)
+                      (int32 sym)
+                      (uint16 mod)
+                      (uint32 unused)))
+
+(ffi-typedef 'SDL_MouseMotionEvent
+             '(struct (uint32 type)
+                      (uint32 timestamp)
+                      (uint32 windowID)
+                      (uint32 which)
+                      (uint32 state)
+                      (int32 x)
+                      (int32 y)
+                      (int32 xrel)
+                      (int32 yrel)))
+
+(sdl-init SDL_INIT_VIDEO)
+(define win (sdl-create-window "FFI SDL Window" 0 0 640 480 4))
+(define ren (sdl-create-renderer win -1 SDL_RENDERER_ACCELERATED))
+
+(define event-ptr (malloc 56)) ; max event size
+(define start-time (sdl-get-ticks))
+
+(let loop ()
+  (if (> (sdl-pollevent event-ptr) 0)
+      (let ((type (ffi-deref event-ptr 'int)))
+        (cond
+          ((= type SDL_QUIT)
+           (display "Closed!\n"))
+          ((= type SDL_MOUSEMOTION)
+           (let ((m (ffi-deref event-ptr 'SDL_MouseMotionEvent)))
+             (format #t "Mouse motion: ~A, ~A\n" (cdr (assoc 'x m)) (cdr (assoc 'y m)))
+             (loop)))
+          (else (loop))))
+      (begin
+        (sdl-set-render-drawcolor ren 0 0 255 255)
+        (sdl-render-clear ren)
+        (sdl-render-present ren)
+        (sdl-delay 16)
+        (if (< (- (sdl-get-ticks) start-time) 5000) (loop)))))
+
+(free event-ptr)
+(sdl-destroy-window win)
+(sdl-quit)
+```
+
 ---
+
 
 ### Helper: Binding C Functions to Scheme Functions (`c-import`)
 
