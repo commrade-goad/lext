@@ -91,7 +91,38 @@ typedef struct TypeAlloc {
     struct TypeAlloc *next;
 } TypeAlloc;
 
+static s7_pointer lookup_named_type(s7_scheme *sc, s7_pointer sym) {
+    s7_pointer registry = s7_name_to_value(sc, "*ffi-types*");
+    if (s7_is_pair(registry)) {
+        s7_pointer pair = s7_assoc(sc, sym, registry);
+        if (s7_is_pair(pair)) {
+            return s7_cdr(pair);
+        }
+    }
+    return s7_nil(sc);
+}
+
+static s7_pointer resolve_type_desc(s7_scheme *sc, s7_pointer type_desc) {
+    if (s7_is_symbol(type_desc)) {
+        const char *name = s7_symbol_name(type_desc);
+        if (strcmp(name, "void") == 0 || strcmp(name, "int") == 0 ||
+            strcmp(name, "enum") == 0 || strcmp(name, "double") == 0 ||
+            strcmp(name, "float") == 0 || strcmp(name, "string") == 0 ||
+            strcmp(name, "pointer") == 0) {
+            return type_desc;
+        }
+        s7_pointer resolved = lookup_named_type(sc, type_desc);
+        if (!s7_is_null(sc, resolved)) {
+            return resolve_type_desc(sc, resolved);
+        }
+    }
+    return type_desc;
+}
+
+static ffi_type *parse_ffi_type_rec(s7_scheme *sc, s7_pointer type_desc, TypeAlloc **allocs);
+
 static bool type_has_integer(s7_scheme *sc, s7_pointer type_desc) {
+    type_desc = resolve_type_desc(sc, type_desc);
     if (s7_is_symbol(type_desc)) {
         const char *name = s7_symbol_name(type_desc);
         if (strcmp(name, "int") == 0 || strcmp(name, "enum") == 0 ||
@@ -118,6 +149,7 @@ static bool type_has_integer(s7_scheme *sc, s7_pointer type_desc) {
 }
 
 static ffi_type *parse_ffi_type_rec(s7_scheme *sc, s7_pointer type_desc, TypeAlloc **allocs) {
+    type_desc = resolve_type_desc(sc, type_desc);
     if (s7_is_symbol(type_desc)) {
         const char *name = s7_symbol_name(type_desc);
         if (strcmp(name, "void") == 0) return &ffi_type_void;
@@ -261,6 +293,7 @@ typedef union {
 } ffi_val;
 
 static int write_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_type *ft, s7_pointer val) {
+    type_desc = resolve_type_desc(sc, type_desc);
     if (ft == &ffi_type_sint) {
         *(int *)buf = (int)s7_integer(val);
         return 0;
@@ -339,6 +372,7 @@ static int write_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_type *f
 }
 
 static s7_pointer read_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_type *ft) {
+    type_desc = resolve_type_desc(sc, type_desc);
     if (ft == &ffi_type_sint) {
         return s7_make_integer(sc, *(int *)buf);
     }
@@ -667,6 +701,8 @@ int main(int argc, char **argv) {
     }
 
     // Register FFI bindings
+    s7_define_variable(s7, "*ffi-types*", s7_nil(s7));
+    s7_eval_c_string(s7, "(define (ffi-typedef name type-desc) (set! *ffi-types* (cons (cons name type-desc) *ffi-types*)))");
     s7_define_function(s7, "ffi-open", ffi_open, 1, 0, false, "(ffi-open path) loads dynamic library");
     s7_define_function(s7, "ffi-sym", ffi_sym, 2, 0, false, "(ffi-sym handle name) finds symbol in library");
     s7_define_function(s7, "ffi-close", ffi_close, 1, 0, false, "(ffi-close handle) closes dynamic library");
