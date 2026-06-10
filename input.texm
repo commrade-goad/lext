@@ -1,0 +1,23 @@
+\documentclass{article}
+\begin{document}
+
+% 1. This evaluates silently because definitions don't return a string type
+@@(define (render-row label value)
+    (format #f "\texttt{~A} & ~A \\ \hline~%" label value))
+
+\section{System Environment Test}
+This text and the \textbf{LaTeX macros} should pass through completely untouched.
+
+\begin{tabular}{|l|l|}
+    \hline
+    \textbf{Component} & \textbf{Specification} \\ \hline
+    % 2. Testing dynamic string evaluation blocks
+    @@(render-row "Init System" "runit")
+    @@(render-row "Text Editor" "Emacs + Evil")
+    @@(render-row "Lisp Core" "s7 Scheme")
+    
+    % 3. Testing inline math calculation (Must wrap number in number->string)
+    Calculated Target Cores & @@(number->string (* 4 2)) \\ \hline
+\end{tabular}
+
+\end{document}
