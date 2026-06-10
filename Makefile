@@ -4,7 +4,7 @@ LIBS = -lm -ldl
 
 # Target binary
 texm: main.o s7.o
-	$(CC) main.o s7.o -o texm $(LIBS)
+	$(CC) main.o s7.o -o lext $(LIBS)
 
 # Compiles your logic (Takes milliseconds)
 main.o: main.c

@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <string.h>
 #include "s7/s7.h"
 
 // Dynamic resizing string buffer to capture raw Lisp forms
@@ -38,20 +39,55 @@ enum State {
 };
 
 int main(int argc, char **argv) {
-    if (argc != 3) {
-        fprintf(stderr, "Usage: %s <input.texm> <output.tex>\n", argv[0]);
+    bool escape_enabled = false;
+    char *input_file = NULL;
+    char *output_file = NULL;
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            printf("Usage: %s [options] <input.texm> <output.tex>\n", argv[0]);
+            printf("Options:\n");
+            printf("  -h, --help      Show this help message\n");
+            printf("  -v, --version   Show version information\n");
+            printf("  -e, --escape    Enable auto-escaping of backslashes inside string literals in @@(...)\n");
+            return EXIT_SUCCESS;
+        } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0) {
+            printf("texm version 0.1.0\n");
+            return EXIT_SUCCESS;
+        } else if (strcmp(argv[i], "-e") == 0 || strcmp(argv[i], "--escape") == 0) {
+            escape_enabled = true;
+        } else if (argv[i][0] == '-') {
+            fprintf(stderr, "Unknown option: %s\n", argv[i]);
+            fprintf(stderr, "Usage: %s [options] <input.texm> <output.tex>\n", argv[0]);
+            return EXIT_FAILURE;
+        } else {
+            if (!input_file) {
+                input_file = argv[i];
+            } else if (!output_file) {
+                output_file = argv[i];
+            } else {
+                fprintf(stderr, "Too many arguments.\n");
+                fprintf(stderr, "Usage: %s [options] <input.texm> <output.tex>\n", argv[0]);
+                return EXIT_FAILURE;
+            }
+        }
+    }
+
+    if (!input_file || !output_file) {
+        fprintf(stderr, "Error: Input and output files are required.\n");
+        fprintf(stderr, "Usage: %s [options] <input.texm> <output.tex>\n", argv[0]);
         return EXIT_FAILURE;
     }
 
-    FILE *in = fopen(argv[1], "r");
+    FILE *in = fopen(input_file, "r");
     if (!in) {
-        fprintf(stderr, "ERR: Could not open input file: %s\n", argv[1]);
+        fprintf(stderr, "ERR: Could not open input file: %s\n", input_file);
         return EXIT_FAILURE;
     }
 
-    FILE *out = fopen(argv[2], "w");
+    FILE *out = fopen(output_file, "w");
     if (!out) {
-        fprintf(stderr, "ERR: Could not create output file: %s\n", argv[2]);
+        fprintf(stderr, "ERR: Could not create output file: %s\n", output_file);
         fclose(in);
         return EXIT_FAILURE;
     }
@@ -116,7 +152,7 @@ int main(int argc, char **argv) {
                         }
 
                         if (lc == '\\') {
-                            if (in_string) {
+                            if (escape_enabled && in_string) {
                                 int next_c = fgetc(in);
                                 if (next_c == '"') {
                                     buf_push(&lisp_buf, '\\');
