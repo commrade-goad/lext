@@ -75,39 +75,50 @@
 
 (define start-time (sdl-get-ticks))
 
+;; Inner function to drain the event queue completely for the current frame
+;; Returns #t to continue running, or #f if a QUIT event was encountered
+(define (poll-all-events)
+  (if (> (sdl-pollevent event-ptr) 0)
+      (let ((type (ffi-deref event-ptr 'int)))
+        (cond
+          ((= type SDL_QUIT)
+           (display "Quit event received! Exiting loop...\n")
+           #f) ; Signal to stop the game loop
+          ((= type SDL_MOUSEMOTION)
+           (let ((motion (ffi-deref event-ptr 'SDL_MouseMotionEvent)))
+             (format #t "Mouse Motion: x=~A, y=~A, xrel=~A, yrel=~A\n"
+                     (cdr (assoc 'x motion))
+                     (cdr (assoc 'y motion))
+                     (cdr (assoc 'xrel motion))
+                     (cdr (assoc 'yrel motion)))
+             (poll-all-events))) ; Keep pulling more events
+          ((= type SDL_KEYDOWN)
+           (let ((key (ffi-deref event-ptr 'SDL_KeyboardEvent)))
+             (format #t "Key Down: scancode=~A, sym=~A\n"
+                     (cdr (assoc 'scancode key))
+                     (cdr (assoc 'sym key)))
+             (poll-all-events))) ; Keep pulling more events
+          (else
+           (poll-all-events)))) ; Ignore unhandled events and keep going
+      #t)) ; No more events left in queue for this frame, continue loop
+
+;; Main Engine Loop
 (let loop ()
-  (let ((has-event (> (sdl-pollevent event-ptr) 0)))
-    (if has-event
-        (let ((type (ffi-deref event-ptr 'int)))
-          (cond
-            ((= type SDL_QUIT)
-             (display "Quit event received! Exiting loop...\n")
-             #f)
-            ((= type SDL_MOUSEMOTION)
-             (let ((motion (ffi-deref event-ptr 'SDL_MouseMotionEvent)))
-               (format #t "Mouse Motion: x=~A, y=~A, xrel=~A, yrel=~A\n"
-                       (cdr (assoc 'x motion))
-                       (cdr (assoc 'y motion))
-                       (cdr (assoc 'xrel motion))
-                       (cdr (assoc 'yrel motion)))
-               (loop)))
-            ((= type SDL_KEYDOWN)
-             (let ((key (ffi-deref event-ptr 'SDL_KeyboardEvent)))
-               (format #t "Key Down: scancode=~A, sym=~A\n"
-                       (cdr (assoc 'scancode key))
-                       (cdr (assoc 'sym key)))
-               (loop)))
-            (else
-             (loop))))
-        (begin
-          (sdl-set-render-drawcolor ren 0 0 255 255) ; clear to blue
-          (sdl-render-clear ren)
-          (sdl-render-present ren)
-          (sdl-delay 16)
-          ;; Limit run time to 5 seconds if no quit event is received
-          (if (< (- (sdl-get-ticks) start-time) 5000)
-              (loop)
-              (display "Time limit reached. Exiting...\n"))))))
+  ;; 1. Handle all input first
+  (if (poll-all-events)
+      ;; 2. If no quit was triggered, execute frame updates and rendering
+      (begin
+        (sdl-set-render-drawcolor ren 0 0 255 255) ; clear to blue
+        (sdl-render-clear ren)
+        (sdl-render-present ren)
+
+        (sdl-delay 16) ; ~60 frames per second limit
+
+        ;; 3. Check master time constraint safely outside event stream
+        #;(if (< (- (sdl-get-ticks) start-time) 5000)
+            (loop)
+            (display "Time limit reached. Exiting...\n")))
+      #f))
 
 (free event-ptr)
 (sdl-destroy-window win)
