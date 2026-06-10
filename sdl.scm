@@ -38,10 +38,30 @@
 
 ;; --- Event Specific Struct Definitions ---
 ;; Keyboard Event (32 bytes)
-(ffi-typedef 'SDL_KeyboardEvent '(struct uint32 uint32 uint32 uint8 uint8 uint8 uint8 int32 int32 uint16 uint32))
+(ffi-typedef 'SDL_KeyboardEvent
+             '(struct (uint32 type)
+                      (uint32 timestamp)
+                      (uint32 windowID)
+                      (uint8 state)
+                      (uint8 repeat)
+                      (uint8 padding2)
+                      (uint8 padding3)
+                      (int32 scancode)
+                      (int32 sym)
+                      (uint16 mod)
+                      (uint32 unused)))
 
 ;; Mouse Motion Event (36 bytes)
-(ffi-typedef 'SDL_MouseMotionEvent '(struct uint32 uint32 uint32 uint32 uint32 int32 int32 int32 int32))
+(ffi-typedef 'SDL_MouseMotionEvent
+             '(struct (uint32 type)
+                      (uint32 timestamp)
+                      (uint32 windowID)
+                      (uint32 which)
+                      (uint32 state)
+                      (int32 x)
+                      (int32 y)
+                      (int32 xrel)
+                      (int32 yrel)))
 
 ;; Allocate a single reusable event buffer (56 bytes is the max event size in SDL2)
 (define event-ptr (malloc 56))
@@ -66,16 +86,16 @@
             ((= type SDL_MOUSEMOTION)
              (let ((motion (ffi-deref event-ptr 'SDL_MouseMotionEvent)))
                (format #t "Mouse Motion: x=~A, y=~A, xrel=~A, yrel=~A\n"
-                       (list-ref motion 5)
-                       (list-ref motion 6)
-                       (list-ref motion 7)
-                       (list-ref motion 8))
+                       (cdr (assoc 'x motion))
+                       (cdr (assoc 'y motion))
+                       (cdr (assoc 'xrel motion))
+                       (cdr (assoc 'yrel motion)))
                (loop)))
             ((= type SDL_KEYDOWN)
              (let ((key (ffi-deref event-ptr 'SDL_KeyboardEvent)))
                (format #t "Key Down: scancode=~A, sym=~A\n"
-                       (list-ref key 7)
-                       (list-ref key 8))
+                       (cdr (assoc 'scancode key))
+                       (cdr (assoc 'sym key)))
                (loop)))
             (else
              (loop))))

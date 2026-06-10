@@ -127,7 +127,12 @@ static bool type_has_integer(s7_scheme *sc, s7_pointer type_desc) {
                 s7_pointer fields = s7_cdr(type_desc);
                 s7_pointer curr = fields;
                 while (s7_is_pair(curr)) {
-                    if (type_has_integer(sc, s7_car(curr))) return true;
+                    s7_pointer field_desc = s7_car(curr);
+                    s7_pointer f_type = field_desc;
+                    if (s7_is_pair(field_desc) && s7_list_length(sc, field_desc) == 2) {
+                        f_type = s7_car(field_desc);
+                    }
+                    if (type_has_integer(sc, f_type)) return true;
                     curr = s7_cdr(curr);
                 }
             }
@@ -216,7 +221,12 @@ static ffi_type *parse_ffi_type_rec(s7_scheme *sc, s7_pointer type_desc, TypeAll
 
                 s7_pointer curr = fields;
                 for (int i = 0; i < nfields; i++) {
-                    ffi_type *ft = parse_ffi_type_rec(sc, s7_car(curr), allocs);
+                    s7_pointer field_desc = s7_car(curr);
+                    s7_pointer f_type = field_desc;
+                    if (s7_is_pair(field_desc) && s7_list_length(sc, field_desc) == 2) {
+                        f_type = s7_car(field_desc);
+                    }
+                    ffi_type *ft = parse_ffi_type_rec(sc, f_type, allocs);
                     if (!ft) {
                         free(stype->elements);
                         free(stype);
@@ -245,7 +255,11 @@ static ffi_type *parse_ffi_type_rec(s7_scheme *sc, s7_pointer type_desc, TypeAll
 
                 s7_pointer curr = fields;
                 for (int i = 0; i < nfields; i++) {
-                    s7_pointer field_type = s7_car(curr);
+                    s7_pointer field_desc = s7_car(curr);
+                    s7_pointer field_type = field_desc;
+                    if (s7_is_pair(field_desc) && s7_list_length(sc, field_desc) == 2) {
+                        field_type = s7_car(field_desc);
+                    }
                     if (type_has_integer(sc, field_type)) {
                         has_int = true;
                     }
@@ -318,7 +332,6 @@ static ffi_type *parse_ffi_type_rec(s7_scheme *sc, s7_pointer type_desc, TypeAll
             }
         }
     }
-
     return NULL;
 }
 
@@ -435,11 +448,34 @@ static int write_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_type *f
             }
             if (s7_is_symbol(head) && strcmp(s7_symbol_name(head), "union") == 0) {
                 if (!s7_is_pair(val) || !s7_is_pair(s7_cdr(val))) return -1;
-                int field_idx = (int)s7_integer(s7_car(val));
+                s7_pointer active_field_key = s7_car(val);
                 s7_pointer field_val = s7_cadr(val);
                 s7_pointer fields = s7_cdr(type_desc);
-                s7_pointer field_type_desc = s7_list_ref(sc, fields, field_idx);
-                if (s7_is_null(sc, field_type_desc)) return -1;
+
+                int field_idx = -1;
+                if (s7_is_integer(active_field_key)) {
+                    field_idx = (int)s7_integer(active_field_key);
+                } else if (s7_is_symbol(active_field_key)) {
+                    s7_pointer curr = fields;
+                    for (int idx = 0; s7_is_pair(curr); idx++) {
+                        s7_pointer f = s7_car(curr);
+                        if (s7_is_pair(f) && s7_list_length(sc, f) == 2 && strcmp(s7_symbol_name(s7_cadr(f)), s7_symbol_name(active_field_key)) == 0) {
+                            field_idx = idx;
+                            break;
+                        }
+                        curr = s7_cdr(curr);
+                    }
+                }
+
+                if (field_idx < 0) return -1;
+
+                s7_pointer field_desc = s7_list_ref(sc, fields, field_idx);
+                if (s7_is_null(sc, field_desc)) return -1;
+
+                s7_pointer field_type_desc = field_desc;
+                if (s7_is_pair(field_desc) && s7_list_length(sc, field_desc) == 2) {
+                    field_type_desc = s7_car(field_desc);
+                }
 
                 TypeAlloc *temp_allocs = NULL;
                 ffi_type *field_ft = parse_ffi_type_rec(sc, field_type_desc, &temp_allocs);
@@ -457,23 +493,52 @@ static int write_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_type *f
                 }
                 return res;
             } else if (s7_is_symbol(head) && strcmp(s7_symbol_name(head), "struct") == 0) {
-                if (!s7_is_list(sc, val)) return -1;
                 size_t offset = 0;
                 s7_pointer fields = s7_cdr(type_desc);
                 s7_pointer curr_val = val;
                 s7_pointer curr_field = fields;
 
+                bool is_assoc = false;
+                if (s7_is_pair(val) && s7_is_pair(s7_car(val)) && s7_is_symbol(s7_caar(val))) {
+                    is_assoc = true;
+                }
+
                 for (int i = 0; ft->elements[i] != NULL; i++) {
-                    if (s7_is_null(sc, curr_val)) return -1;
+                    if (s7_is_null(sc, curr_field)) return -1;
                     ffi_type *field_ft = ft->elements[i];
                     offset = align_to(offset, field_ft->alignment);
 
-                    s7_pointer field_type_desc = s7_car(curr_field);
-                    if (write_val(sc, (char *)buf + offset, field_type_desc, field_ft, s7_car(curr_val)) < 0) {
+                    s7_pointer field_desc = s7_car(curr_field);
+                    s7_pointer field_type_desc = field_desc;
+                    s7_pointer label = s7_nil(sc);
+
+                    if (s7_is_pair(field_desc) && s7_list_length(sc, field_desc) == 2) {
+                        field_type_desc = s7_car(field_desc);
+                        label = s7_cadr(field_desc);
+                    }
+
+                    s7_pointer field_val = s7_nil(sc);
+                    if (is_assoc) {
+                        if (!s7_is_null(sc, label)) {
+                            s7_pointer pair = s7_assoc(sc, label, val);
+                            if (s7_is_pair(pair)) {
+                                field_val = s7_cdr(pair);
+                            } else {
+                                return -1;
+                            }
+                        } else {
+                            return -1;
+                        }
+                    } else {
+                        if (s7_is_null(sc, curr_val)) return -1;
+                        field_val = s7_car(curr_val);
+                        curr_val = s7_cdr(curr_val);
+                    }
+
+                    if (write_val(sc, (char *)buf + offset, field_type_desc, field_ft, field_val) < 0) {
                         return -1;
                     }
                     offset += field_ft->size;
-                    curr_val = s7_cdr(curr_val);
                     curr_field = s7_cdr(curr_field);
                 }
                 return 0;
@@ -553,7 +618,15 @@ static s7_pointer read_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_t
                 s7_pointer curr_field = fields;
 
                 while (s7_is_pair(curr_field)) {
-                    s7_pointer field_type_desc = s7_car(curr_field);
+                    s7_pointer field_desc = s7_car(curr_field);
+                    s7_pointer field_type_desc = field_desc;
+                    s7_pointer label = s7_nil(sc);
+
+                    if (s7_is_pair(field_desc) && s7_list_length(sc, field_desc) == 2) {
+                        field_type_desc = s7_car(field_desc);
+                        label = s7_cadr(field_desc);
+                    }
+
                     TypeAlloc *temp_allocs = NULL;
                     ffi_type *field_ft = parse_ffi_type_rec(sc, field_type_desc, &temp_allocs);
 
@@ -570,7 +643,13 @@ static s7_pointer read_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_t
                         }
                     }
 
-                    s7_pointer cell = s7_cons(sc, val, s7_nil(sc));
+                    s7_pointer cell;
+                    if (!s7_is_null(sc, label)) {
+                        cell = s7_cons(sc, s7_cons(sc, label, val), s7_nil(sc));
+                    } else {
+                        cell = s7_cons(sc, val, s7_nil(sc));
+                    }
+
                     if (s7_is_null(sc, result)) {
                         result = cell;
                     } else {
@@ -592,10 +671,24 @@ static s7_pointer read_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_t
                     ffi_type *field_ft = ft->elements[i];
                     offset = align_to(offset, field_ft->alignment);
 
-                    s7_pointer field_type_desc = s7_car(curr_field);
+                    s7_pointer field_desc = s7_car(curr_field);
+                    s7_pointer field_type_desc = field_desc;
+                    s7_pointer label = s7_nil(sc);
+
+                    if (s7_is_pair(field_desc) && s7_list_length(sc, field_desc) == 2) {
+                        field_type_desc = s7_car(field_desc);
+                        label = s7_cadr(field_desc);
+                    }
+
                     s7_pointer val = read_val(sc, (char *)buf + offset, field_type_desc, field_ft);
 
-                    s7_pointer cell = s7_cons(sc, val, s7_nil(sc));
+                    s7_pointer cell;
+                    if (!s7_is_null(sc, label)) {
+                        cell = s7_cons(sc, s7_cons(sc, label, val), s7_nil(sc));
+                    } else {
+                        cell = s7_cons(sc, val, s7_nil(sc));
+                    }
+
                     if (s7_is_null(sc, result)) {
                         result = cell;
                     } else {
