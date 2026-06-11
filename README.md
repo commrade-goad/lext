@@ -43,6 +43,8 @@ This produces the `./lext` binary.
 
 You can also let `lext` built itself with `nob.scm`, you just need `lext` already compiled and do:
 ```bash
+# compile the shared lib of libnob first so we can FFI to nob.h
+gcc -O2 -fPIC -shared nob.c -o libnob.so
 lext -s nob.scm
 ```
 
