@@ -1066,7 +1066,17 @@ int main(int argc, char **argv) {
     char *input_file = NULL;
     char *output_file = NULL;
 
+    int scheme_argc = 0;
+    char **scheme_argv = NULL;
+
     for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--") == 0) {
+            scheme_argc = argc - (i + 1);
+            if (scheme_argc > 0) {
+                scheme_argv = &argv[i + 1];
+            }
+            break;
+        }
         if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             printf("Usage: %s [options] <input_file> [<output_file>]\n", argv[0]);
             printf("Options:\n");
@@ -1158,6 +1168,14 @@ int main(int argc, char **argv) {
     s7_define_function(s7, "ffi-call", s7_ffi_call, 4, 1, false, "(ffi-call func ret-type arg-types arg-vals [nfixed]) invokes foreign function");
     s7_define_function(s7, "ffi-deref", ffi_deref, 2, 0, false, "(ffi-deref ptr type-desc) dereferences pointer using type description");
     s7_define_function(s7, "ffi-set!", ffi_set_bang, 3, 0, false, "(ffi-set! ptr type-desc value) writes value to pointer using type description");
+
+    // Initialize command line arguments list
+    s7_pointer argv_list = s7_nil(s7);
+    for (int i = scheme_argc - 1; i >= 0; i--) {
+        argv_list = s7_cons(s7, s7_make_string(s7, scheme_argv[i]), argv_list);
+    }
+    s7_define_variable(s7, "*argv*", argv_list);
+    s7_define_variable(s7, "argv", argv_list);
 
 
     if (no_template) {
