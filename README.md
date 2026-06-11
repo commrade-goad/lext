@@ -67,6 +67,18 @@ To evaluate embedded Lisp/Scheme code blocks (`@@(...)`) inside template files (
 *Options:*
 - `-e` / `--escape`: Enables automatic escaping of backslashes inside string literals in `@@(...)` blocks.
 
+### 3. Command-Line Arguments Passing
+You can pass custom command-line arguments to your Scheme scripts by adding `--` after the script name. Any arguments following `--` are collected into a list of strings and bound to the global variables `argv` and `*argv*` in the Scheme interpreter:
+```bash
+./lext -s script.scm -- arg1 arg2 "hello world"
+```
+
+Inside your script:
+```scheme
+(display argv)
+;; Output: ("arg1" "arg2" "hello world")
+```
+
 ---
 
 ## FFI API Reference
