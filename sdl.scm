@@ -97,10 +97,14 @@
              (format #t "Key Down: scancode=~A, sym=~A\n"
                      (cdr (assoc 'scancode key))
                      (cdr (assoc 'sym key)))
-             (poll-all-events))) ; Keep pulling more events
+             (let ((sc (cdr (assoc 'scancode key))))
+               (if (= sc 20)
+                   #f                 ; Stop polling and return #f to exit the game
+                   (poll-all-events)) ; Otherwise, keep pulling more events
+               )))
           (else
-           (poll-all-events)))) ; Ignore unhandled events and keep going
-      #t)) ; No more events left in queue for this frame, continue loop
+           (poll-all-events))))
+      #t))
 
 ;; Main Engine Loop
 (let loop ()
@@ -108,17 +112,16 @@
   (if (poll-all-events)
       ;; 2. If no quit was triggered, execute frame updates and rendering
       (begin
-        (sdl-set-render-drawcolor ren 0 0 255 255) ; clear to blue
+        (if #f
+            (sdl-set-render-drawcolor ren 0 0 255 255)
+            (sdl-set-render-drawcolor ren 255 0 0 255)
+            )
         (sdl-render-clear ren)
         (sdl-render-present ren)
 
         (sdl-delay 16) ; ~60 frames per second limit
-
-        ;; 3. Check master time constraint safely outside event stream
-        #;(if (< (- (sdl-get-ticks) start-time) 5000)
-            (loop)
-            (display "Time limit reached. Exiting...\n")))
-      #f))
+        (loop)
+        #f)))
 
 (free event-ptr)
 (sdl-destroy-window win)

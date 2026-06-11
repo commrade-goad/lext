@@ -5,7 +5,7 @@
 #include "s7/s7.h"
 #include "helpa.h"
 
-#define VERSTRING  "0.1.0"
+#define VERSTRING  "1.0.0"
 #ifndef HASHVER
 #define HASHVER "unknown"
 #endif
@@ -1061,7 +1061,6 @@ enum State {
 };
 
 int main(int argc, char **argv) {
-    bool escape_enabled = false;
     bool no_template = false;
     char *input_file = NULL;
     char *output_file = NULL;
@@ -1083,14 +1082,11 @@ int main(int argc, char **argv) {
             printf("Options:\n");
             printf("  -h, --help         Show this help message\n");
             printf("  -v, --version      Show version information\n");
-            printf("  -e, --escape       Enable auto-escaping of backslashes inside string literals in @@(...)\n");
             printf("  -s, --no-template  Run as a pure Scheme script runner without output\n");
             return EXIT_SUCCESS;
         } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0) {
             printf("lext version " VERSTRING "-" HASHVER "\n");
             return EXIT_SUCCESS;
-        } else if (strcmp(argv[i], "-e") == 0 || strcmp(argv[i], "--escape") == 0) {
-            escape_enabled = true;
         } else if (strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "--no-template") == 0) {
             no_template = true;
         } else if (argv[i][0] == '-') {
@@ -1225,12 +1221,6 @@ int main(int argc, char **argv) {
 
                     // Safely track internal token blocks to compute exact tree balance
                     while (depth > 0 && (lc = fgetc(in)) != EOF) {
-                        if (in_comment) {
-                            hstr_push(&lisp_buf, lc);
-                            if (lc == '\n') in_comment = false;
-                            continue;
-                        }
-
                         if (escape) {
                             hstr_push(&lisp_buf, lc);
                             escape = false;
@@ -1238,22 +1228,14 @@ int main(int argc, char **argv) {
                         }
 
                         if (lc == '\\') {
-                            if (escape_enabled && in_string) {
-                                int next_c = fgetc(in);
-                                if (next_c == '"') {
-                                    hstr_push(&lisp_buf, '\\');
-                                    hstr_push(&lisp_buf, '"');
-                                } else {
-                                    hstr_push(&lisp_buf, '\\');
-                                    hstr_push(&lisp_buf, '\\');
-                                    if (next_c != EOF) {
-                                        ungetc(next_c, in);
-                                    }
-                                }
-                            } else {
-                                hstr_push(&lisp_buf, '\\');
-                                escape = true;
-                            }
+                            hstr_push(&lisp_buf, '\\');
+                            escape = true;
+                            continue;
+                        }
+
+                        if (in_comment) {
+                            hstr_push(&lisp_buf, lc);
+                            if (lc == '\n') in_comment = false;
                             continue;
                         }
 

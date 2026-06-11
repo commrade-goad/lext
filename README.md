@@ -15,7 +15,6 @@ It can operate in two modes:
 - **Strict ABI Compliance**: Pass and return primitive types, pointers, structs, and unions by value and reference.
 - **Command-Line Interface**:
   - Run pure scripts with `-s` or `--no-template`.
-  - Auto-escape backslashes with `-e` / `--escape`.
 
 ---
 
@@ -66,8 +65,6 @@ To evaluate embedded Lisp/Scheme code blocks (`@@(...)`) inside template files (
 ```bash
 ./lext input.texm output.tex
 ```
-*Options:*
-- `-e` / `--escape`: Enables automatic escaping of backslashes inside string literals in `@@(...)` blocks.
 
 ### 3. Command-Line Arguments Passing
 You can pass custom command-line arguments to your Scheme scripts by adding `--` after the script name. Any arguments following `--` are collected into a list of strings and bound to the global variables `argv` and `*argv*` in the Scheme interpreter:
