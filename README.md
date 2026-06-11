@@ -41,6 +41,13 @@ make
 ```
 This produces the `./lext` binary.
 
+You can also let `lext` built itself with `nob.scm`, you just need `lext` already compiled and do:
+```bash
+lext -s nob.scm
+```
+
+it will generate a `build` dir with all the artifact and the executable there.
+
 ---
 
 ## Usage Guide
