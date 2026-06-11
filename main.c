@@ -1068,6 +1068,7 @@ int main(int argc, char **argv) {
 
     int scheme_argc = 0;
     char **scheme_argv = NULL;
+    char *script_name = NULL;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--") == 0) {
@@ -1099,6 +1100,7 @@ int main(int argc, char **argv) {
         } else {
             if (!input_file) {
                 input_file = argv[i];
+                script_name = argv[i];
             } else if (!output_file) {
                 output_file = argv[i];
             } else {
@@ -1170,10 +1172,12 @@ int main(int argc, char **argv) {
     s7_define_function(s7, "ffi-set!", ffi_set_bang, 3, 0, false, "(ffi-set! ptr type-desc value) writes value to pointer using type description");
 
     // Initialize command line arguments list
+    s7_pointer scheme_script_input = s7_make_string(s7, script_name);
     s7_pointer argv_list = s7_nil(s7);
     for (int i = scheme_argc - 1; i >= 0; i--) {
         argv_list = s7_cons(s7, s7_make_string(s7, scheme_argv[i]), argv_list);
     }
+    s7_define_variable(s7, "*script-name*", scheme_script_input);
     s7_define_variable(s7, "*argv*", argv_list);
     s7_define_variable(s7, "argv", argv_list);
 

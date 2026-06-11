@@ -105,9 +105,23 @@
 
 ;; --- Build Process ---
 
-(mkdir-if-nexist build-dir)
+(display (format #f "\
+# ~A self-builder script #
+  Why use other language to compile your intepreter
+           when you can metaprogram it :)\n\n" *script-name*))
 
 (display "Starting Scheme-based build using libnob...\n")
+
+(if (member "clean" argv string=?)
+    (begin
+      (display "Cleaning workspace...\n")
+      (delete-file (append-builddir "main.o"))
+      (delete-file (append-builddir "s7.o"))
+      (delete-file (append-builddir "lext"))
+      (exit))
+    )
+
+(mkdir-if-nexist build-dir)
 
 (define git-hash (get-git-hash))
 (define ffi-cflags (get-pkg-config-cflags))
