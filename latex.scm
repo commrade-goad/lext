@@ -78,3 +78,56 @@
       `(begin tabular (@ (,spec))
          (hline)
          ,@table-body))))
+
+#|
+=== LaTeX S-Expression DSL Usage Examples ===
+
+1. Basic Command:
+   (latex-render '(textbf "Hello World"))
+   ;; => "\\textbf{Hello World}"
+
+2. Command with Options (using '@):
+   (latex-render '(includegraphics (@ (width "0.5\\textwidth")) "assets/logo.png"))
+   ;; => "\\includegraphics[width=0.5\\textwidth]{assets/logo.png}"
+
+3. Basic Environment:
+   (latex-render '(begin center "Centred Text"))
+   ;; => "\\begin{center}\nCentred Text\n\\end{center}"
+
+4. Environment with Options:
+   (latex-render
+     '(begin lstlisting (@ (language bash) (numbers left))
+        "echo \"hello world\""))
+   ;; => "\\begin{lstlisting}[language=bash,numbers=left]\necho \"hello world\"\n\\end{lstlisting}"
+
+5. Complex Nested Environment (Figure Example):
+   (latex-render
+     '(begin figure (@ ("!h"))
+        (centering)
+        (includegraphics (@ (width "0.5\\textwidth")) "assets/logo.png")
+        (caption "A cool figure")
+        (label "fig:logo")))
+   ;; =>
+   ;; \\begin{figure}[!h]
+   ;; \\centering
+   ;; \\includegraphics[width=0.5\\textwidth]{assets/logo.png}
+   ;; \\caption{A cool figure}
+   ;; \\label{fig:logo}
+   ;; \\end{figure}
+
+6. Programmatic Table Generation (using make-table):
+   (make-table "|l|c|"
+               '("Component" "Version")
+               '(("s7 Scheme" "1.0")
+                 ("libffi" "3.4")))
+   ;; =>
+   ;; \\begin{tabular}{|l|c|}
+   ;; \\hline
+   ;; Component & Version \\
+   ;; \\hline
+   ;; s7 Scheme & 1.0 \\
+   ;; \\hline
+   ;; libffi & 3.4 \\
+   ;; \\hline
+   ;; \\end{tabular}
+|#
