@@ -60,6 +60,17 @@ static size_t align_to(size_t offset, size_t alignment) {
     return (offset + alignment - 1) & ~(alignment - 1);
 }
 
+typedef struct Loc {
+    size_t line;
+    size_t col;
+} Loc;
+
+typedef struct Locs {
+    Loc *dt;
+    size_t sz;
+    size_t cp;
+} Locs;
+
 typedef struct TypeAlloc {
     ffi_type *type;
     struct TypeAlloc *next;
@@ -1183,10 +1194,17 @@ int main(int argc, char **argv) {
         return EXIT_SUCCESS;
     }
 
+    Loc loc = {0};
     enum State state = STATE_TEXT;
     int c;
 
     while ((c = fgetc(in)) != EOF) {
+
+        if (c == '\n') {
+            loc.line++;
+            loc.col = 0;
+        } else loc.col++;
+
         switch (state) {
             case STATE_TEXT:
                 if (c == '@') {
@@ -1213,6 +1231,9 @@ int main(int argc, char **argv) {
                     hstr_init(&lisp_buf);
                     hstr_push(&lisp_buf, '('); // Capture the opening parenthesis
 
+                    Locs locs = {0};
+                    helpa_da_append(locs, loc);
+
                     int depth = 1;
                     int lc;
                     bool in_string = false;
@@ -1222,24 +1243,26 @@ int main(int argc, char **argv) {
 
                     // Safely track internal token blocks to compute exact tree balance
                     while (depth > 0 && (lc = fgetc(in)) != EOF) {
+
+                        if (c == '\n') {
+                            loc.line++;
+                            loc.col = 0;
+                        } else loc.col++;
+
                         if (in_raw_string) {
-                            if (lc == '|') {
+                            if (lc == '\\') {
                                 int next1 = fgetc(in);
-                                if (next1 == '#') {
-                                    hstr_push(&lisp_buf, '"');
-                                    in_raw_string = false;
+                                if (next1 == '"') {
+                                    hstr_append_cstr(&lisp_buf, "\\\"");
+                                    continue;
                                 } else {
-                                    hstr_push(&lisp_buf, '|');
-                                    if (next1 != EOF) {
-                                        ungetc(next1, in);
-                                    }
+                                    if (next1 != EOF) ungetc(next1, in);
+                                    else continue;
                                 }
-                            } else if (lc == '\\') {
-                                hstr_push(&lisp_buf, '\\');
-                                hstr_push(&lisp_buf, '\\');
+                                hstr_append_cstr(&lisp_buf, "\\\\");
                             } else if (lc == '"') {
-                                hstr_push(&lisp_buf, '\\');
-                                hstr_push(&lisp_buf, '"');
+                                in_raw_string = false;
+                                hstr_push(&lisp_buf, lc);
                             } else {
                                 hstr_push(&lisp_buf, lc);
                             }
@@ -1264,24 +1287,14 @@ int main(int argc, char **argv) {
                             continue;
                         }
 
-                        if (!in_string && lc == '#') {
+                        if (!in_string && lc == 'r') {
                             int next1 = fgetc(in);
-                            if (next1 == '|') {
-                                int next2 = fgetc(in);
-                                if (next2 == 'r') {
-                                    in_raw_string = true;
-                                    hstr_push(&lisp_buf, '"');
-                                    continue;
-                                } else {
-                                    hstr_push(&lisp_buf, '#');
-                                    hstr_push(&lisp_buf, '|');
-                                    if (next2 != EOF) {
-                                        ungetc(next2, in);
-                                    }
-                                    continue;
-                                }
+                            if (next1 == '"') {
+                                in_raw_string = true;
+                                hstr_push(&lisp_buf, '"');
+                                continue;
                             } else {
-                                hstr_push(&lisp_buf, '#');
+                                hstr_push(&lisp_buf, 'r');
                                 if (next1 != EOF) {
                                     ungetc(next1, in);
                                 }
@@ -1299,16 +1312,20 @@ int main(int argc, char **argv) {
                             if (lc == ';') {
                                 in_comment = true;
                             } else if (lc == '(') {
+                                helpa_da_append(locs, loc);
                                 depth++;
                             } else if (lc == ')') {
+                                helpa_da_pop(locs);
                                 depth--;
                             }
                         }
                     }
 
                     if (depth > 0) {
-                        fprintf(stderr, "ERR: Unmatched parenthesis inside Lisp block.\n");
+                        Loc last = helpa_da_last(locs);
+                        fprintf(stderr, "%s:%zu:%zu: ERR: Unmatched parenthesis inside Lisp block.\n", script_name, last.line, last.col);
                         hstr_free(&lisp_buf);
+                        helpa_da_free(locs);
                         fclose(in);
                         fclose(out);
                         return EXIT_FAILURE;
@@ -1323,6 +1340,7 @@ int main(int argc, char **argv) {
                         fputs(s7_string(res), out);
                     }
 
+                    helpa_da_free(locs);
                     hstr_free(&lisp_buf);
                     state = STATE_TEXT;
                 } else {
