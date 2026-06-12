@@ -1194,7 +1194,7 @@ int main(int argc, char **argv) {
         return EXIT_SUCCESS;
     }
 
-    Loc loc = {0};
+    Loc loc = {1, 0};
     enum State state = STATE_TEXT;
     int c;
 
@@ -1244,7 +1244,7 @@ int main(int argc, char **argv) {
                     // Safely track internal token blocks to compute exact tree balance
                     while (depth > 0 && (lc = fgetc(in)) != EOF) {
 
-                        if (c == '\n') {
+                        if (lc == '\n') {
                             loc.line++;
                             loc.col = 0;
                         } else loc.col++;
@@ -1252,14 +1252,15 @@ int main(int argc, char **argv) {
                         if (in_raw_string) {
                             if (lc == '\\') {
                                 int next1 = fgetc(in);
-                                if (next1 == '"') {
+                                if (next1 == '\\') {
+                                    hstr_append_cstr(&lisp_buf, "\\\\\\\\");
+                                } else if (next1 == '"') {
                                     hstr_append_cstr(&lisp_buf, "\\\"");
-                                    continue;
                                 } else {
                                     if (next1 != EOF) ungetc(next1, in);
-                                    else continue;
+                                    hstr_append_cstr(&lisp_buf, "\\\\");
                                 }
-                                hstr_append_cstr(&lisp_buf, "\\\\");
+                                continue;
                             } else if (lc == '"') {
                                 in_raw_string = false;
                                 hstr_push(&lisp_buf, lc);
@@ -1323,7 +1324,7 @@ int main(int argc, char **argv) {
 
                     if (depth > 0) {
                         Loc last = helpa_da_last(locs);
-                        fprintf(stderr, "%s:%zu:%zu: ERR: Unmatched parenthesis inside Lisp block.\n", script_name, last.line, last.col);
+                        fprintf(stderr, "%s:%zu:%zu: ERR: Unmatched parenthesis inside Lisp block (remaining depth: %d).\n", script_name, last.line, last.col, depth);
                         hstr_free(&lisp_buf);
                         helpa_da_free(locs);
                         fclose(in);
