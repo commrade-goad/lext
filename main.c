@@ -5,7 +5,7 @@
 #include "s7/s7.h"
 #include "helpa.h"
 
-#define VERSTRING  "1.0.0"
+#define VERSTRING  "1.1.0"
 #ifndef HASHVER
 #define HASHVER "unknown"
 #endif
@@ -1218,9 +1218,34 @@ int main(int argc, char **argv) {
                     bool in_string = false;
                     bool in_comment = false;
                     bool escape = false;
+                    bool in_raw_string = false;
 
                     // Safely track internal token blocks to compute exact tree balance
                     while (depth > 0 && (lc = fgetc(in)) != EOF) {
+                        if (in_raw_string) {
+                            if (lc == '|') {
+                                int next1 = fgetc(in);
+                                if (next1 == '#') {
+                                    hstr_push(&lisp_buf, '"');
+                                    in_raw_string = false;
+                                } else {
+                                    hstr_push(&lisp_buf, '|');
+                                    if (next1 != EOF) {
+                                        ungetc(next1, in);
+                                    }
+                                }
+                            } else if (lc == '\\') {
+                                hstr_push(&lisp_buf, '\\');
+                                hstr_push(&lisp_buf, '\\');
+                            } else if (lc == '"') {
+                                hstr_push(&lisp_buf, '\\');
+                                hstr_push(&lisp_buf, '"');
+                            } else {
+                                hstr_push(&lisp_buf, lc);
+                            }
+                            continue;
+                        }
+
                         if (escape) {
                             hstr_push(&lisp_buf, lc);
                             escape = false;
@@ -1237,6 +1262,31 @@ int main(int argc, char **argv) {
                             hstr_push(&lisp_buf, lc);
                             if (lc == '\n') in_comment = false;
                             continue;
+                        }
+
+                        if (!in_string && lc == '#') {
+                            int next1 = fgetc(in);
+                            if (next1 == '|') {
+                                int next2 = fgetc(in);
+                                if (next2 == 'r') {
+                                    in_raw_string = true;
+                                    hstr_push(&lisp_buf, '"');
+                                    continue;
+                                } else {
+                                    hstr_push(&lisp_buf, '#');
+                                    hstr_push(&lisp_buf, '|');
+                                    if (next2 != EOF) {
+                                        ungetc(next2, in);
+                                    }
+                                    continue;
+                                }
+                            } else {
+                                hstr_push(&lisp_buf, '#');
+                                if (next1 != EOF) {
+                                    ungetc(next1, in);
+                                }
+                                continue;
+                            }
                         }
 
                         hstr_push(&lisp_buf, lc);

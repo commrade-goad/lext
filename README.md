@@ -66,6 +66,21 @@ To evaluate embedded Lisp/Scheme code blocks (`@@(...)`) inside template files (
 ./lext input.texm output.tex
 ```
 
+#### Raw String Literals in Templates
+To simplify writing strings containing backslashes (like LaTeX commands) or double quotes without verbose manual escaping, you can use raw strings inside evaluation blocks:
+* **Syntax**: `#|r ... |#`
+* Within `#|r` and `|#`, all characters are captured raw.
+* Double quotes `"` are automatically escaped to `\"` and backslashes `\` to `\\` in the generated Scheme string literal.
+* **Example**:
+  ```latex
+  @@(string-append "Rendered LaTeX command: " #|r\texttt{foo} and "bar"|#)
+  ```
+  This evaluates to:
+  ```latex
+  Rendered LaTeX command: \texttt{foo} and "bar"
+  ```
+
+
 ### 3. Command-Line Arguments Passing
 You can pass custom command-line arguments to your Scheme scripts by adding `--` after the script name. Any arguments following `--` are collected into a list of strings and bound to the global variables `argv` and `*argv*` in the Scheme interpreter:
 ```bash
