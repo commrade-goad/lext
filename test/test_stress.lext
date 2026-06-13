@@ -43,11 +43,35 @@
 ;; 3. c-import
 (c-import stress-add-points libtest "add_points" Basic_Point (Basic_Point Basic_Point))
 
-;; 4. c.malloc, c.free, c.realloc
+;; 4. c.malloc, c.free, c.realloc, c.calloc
 (let* ((p1 (c.malloc 8))
        (p2 (c.realloc p1 16)))
   (display (format #f "  c.malloc/realloc ptr: ~A\n" (c-pointer? p2)))
+  (display (format #f "  c.realloc bounds check: ~A\n" (lext-bounds-check p2 16)))
   (c.free p2))
+
+(let ((p (c.calloc 4 4)))
+  (display (format #f "  c.calloc bounds check: ~A\n" (lext-bounds-check p 16)))
+  (c.free p))
+
+;; 4b. c.raw-malloc, c.raw-free, c.raw-realloc, c.raw-calloc
+(let* ((p1 (c.raw-malloc 8))
+       (p2 (c.raw-realloc p1 16)))
+  (display (format #f "  c.raw-malloc/realloc ptr: ~A\n" (c-pointer? p2)))
+  (display (format #f "  c.raw-realloc bounds check (should be false): ~A\n" (lext-bounds-check p2 16)))
+  (c.raw-free p2))
+
+(let ((p (c.raw-calloc 4 4)))
+  (display (format #f "  c.raw-calloc bounds check (should be false): ~A\n" (lext-bounds-check p 16)))
+  (c.raw-free p))
+
+;; 4c. lext-register-bounds, lext-unregister-bounds
+(let ((p (c.raw-malloc 8)))
+  (lext-register-bounds p 8)
+  (display (format #f "  lext-register-bounds check: ~A\n" (lext-bounds-check p 8)))
+  (lext-unregister-bounds p)
+  (display (format #f "  lext-unregister-bounds check (should be false): ~A\n" (lext-bounds-check p 8)))
+  (c.raw-free p))
 
 ;; 5. internal-c-memcpy, internal-c-memset
 (let ((buf1 (c.malloc 10))
