@@ -1,8 +1,8 @@
 # Lext-Scheme: The Complete Language & FFI Reference Guide
 
-Welcome to the definitive reference manual for **Lext** (Lext-Scheme), a systems-scripting Lisp dialect optimized for metaprogramming, C FFI binding, task orchestration, and template generation. 
+Welcome to the definitive reference manual for **Lext** (Lext-Scheme), a systems-scripting Lisp dialect optimized for metaprogramming, C FFI binding, and template generation.
 
-This document provides an exhaustive overview of the syntax, macros, standard libraries, and implementation details of the Lext dialect.
+This document provides a detailed overview of the core runtime engine, the C-side built-in procedures, basic libraries, and how the language interacts with standard Scheme files.
 
 ---
 
@@ -10,24 +10,18 @@ This document provides an exhaustive overview of the syntax, macros, standard li
 1. [Core Design & s7 Engine Integration](#1-core-design--s7-engine-integration)
 2. [File Extensions & Loading standard `.scm` files](#2-file-extensions--loading-standard-scm-files)
 3. [The Module System (`use`) & Search Paths](#3-the-module-system-use--search-paths)
-4. [Namespace Management (`open-namespace` & `use-namespace`)](#4-namespace-management-open-namespace--use-namespace)
-5. [Syntax Extensions: Imperative Loops](#5-syntax-extensions-imperative-loops)
-6. [Type Declarations (`struct`, `union`, `enum`)](#6-type-declarations-struct-union-enum)
-7. [Pointer Arithmetic & Memory Navigation (`c.@`, `c.=`, `c.&`)](#7-pointer-arithmetic--memory-navigation-c-c-c)
-8. [Memory Sandbox Allocators (`with-heap-alloc`, `with-c-string`, etc.)](#8-memory-sandbox-allocators-with-heap-alloc-with-c-string-etc)
-9. [Tracked Bounds-Checked Memory Allocations](#9-tracked-bounds-checked-memory-allocations)
-10. [String Views (`SV`) & Temp Allocators](#10-string-views-sv--temp-allocators)
-11. [Dynamic Arrays (`da`) API](#11-dynamic-arrays-da-api)
-12. [Task Orchestration & Shell Execution (`nob` command runner)](#12-task-orchestration--shell-execution-nob-command-runner)
-13. [Headless GUI Programming with SDL2](#13-headless-gui-programming-with-sdl2)
-14. [Template Engine & Raw String Literals](#14-template-engine--raw-string-literals)
-15. [Emacs Major Mode Integration](#15-emacs-major-mode-integration)
+4. [C-Side Core Built-in Reference](#4-c-side-core-built-in-reference)
+5. [Standard Library: `basic` Module (`stdlib/basic/lib.lext`)](#5-standard-library-basic-module-stdlibbasicliblext)
+6. [Standard Library: `c` Module (`stdlib/c/lib.lext`)](#6-standard-library-c-module-stdlibcliblext)
+7. [The Task Runner Library: `libnob` Reference](#7-the-task-runner-library-libnob-reference)
+8. [Template Engine & Raw String Literals](#8-template-engine--raw-string-literals)
+9. [Emacs Major Mode Integration](#9-emacs-major-mode-integration)
 
 ---
 
 ## 1. Core Design & s7 Engine Integration
 
-Lext is built on the **s7 Lisp** engine. s7 is a minimal Scheme dialect belonging to the Lisp family, sharing elements of R5RS/R7RS Scheme and Common Lisp. 
+Lext is built on the **s7 Lisp** engine. s7 is a minimal Scheme dialect belonging to the Lisp family, sharing elements of R5RS/R7RS Scheme and Common Lisp.
 
 Key built-in s7 features available globally in Lext include:
 * **Native Environments (First-class Let Scopes)**: Environments can be captured, passed around as values, and inspected via `(curlet)` (current environment) and `(rootlet)` (global environment).
@@ -63,360 +57,308 @@ The `use` function dynamically locates and loads module entry-point libraries. I
 
 ---
 
-## 4. Namespace Management (`open-namespace` & `use-namespace`)
+## 4. C-Side Core Built-in Reference
 
-To prevent imported low-level FFI bindings (such as `c.malloc` or the memory comparison operator `c.=`) from polluting the global environment or overriding core Scheme operators, Lext wraps module interfaces inside prefixes. You can import them using namespace macros:
+The `lext` interpreter registers several low-level primitives in the global environment at startup. These are defined directly in the C source files.
 
-### A. Global Importing (`open-namespace`)
-Strips the namespace prefix and registers the bindings in the current global environment. It automatically appends the trailing dot (`.`) separator if omitted. It protects critical operators (like `=`, `set!`, `+`, `-`, etc.) from being overwritten.
-```scheme
-(use "stdlib/c")
-(open-namespace "c") ;; strips "c." prefix
+### A. Library & Symbol Resolution (`src/lext_ffi.c`)
 
-;; Now you can invoke malloc and free directly without the prefix:
-(define ptr (malloc 32))
-(free ptr)
-```
+* **`(ffi-open path)`**  
+  Loads a shared library (`.so`).
+  - **Arguments**: `path` (string) - Path to the shared library (e.g. `"libSDL2.so"`). Pass `#f` to target the main process space (allowing access to standard C library functions like `puts` or `cos`).
+  - **Returns**: A pointer handle representing the library context.
 
-### B. Lexically Scoped Importing (`use-namespace`)
-Temporarily strips the namespace prefix within the macro body. Outside of this block, the prefix-free symbols remain unbound.
-```scheme
-(use "stdlib/libnob")
+* **`(ffi-open-lib path)`**  
+  An alias for `ffi-open`.
 
-(use-namespace "nob"
-  (display "Inside namespace block:\n")
-  (cmd-run '("echo" "Hello from scoped namespace!")))
+* **`(ffi-sym handle symbol-name)`**  
+  Looks up a symbol in a loaded library.
+  - **Arguments**:
+    - `handle`: Pointer returned from `ffi-open`.
+    - `symbol-name` (string): The name of the function/global symbol (e.g. `"SDL_Init"`).
+  - **Returns**: A function pointer handle.
 
-;; Outside the block, 'cmd-run' is unbound, avoiding namespace pollution.
-```
+* **`(ffi-close handle)`**  
+  Closes a library handle.
+  - **Arguments**: `handle` - Pointer returned from `ffi-open`.
 
----
+* **`(ffi-call func-ptr ret-type arg-types arg-vals [nfixed])`**  
+  Invokes a C function pointer using `libffi`.
+  - **Arguments**:
+    - `func-ptr`: Function pointer from `ffi-sym`.
+    - `ret-type` (symbol): Return type descriptor (e.g., `'int`, `'void`, `'double`).
+    - `arg-types` (list of symbols): Types of the arguments.
+    - `arg-vals` (list of values): Scheme arguments matching `arg-types`.
+    - `nfixed` (integer, optional): The number of fixed arguments if invoking a variadic C function (e.g., `printf`).
+  - **Returns**: The return value of the C function translated back to Scheme.
 
-## 5. Syntax Extensions: Imperative Loops
+* **`(ffi-callback scheme-func ret-type arg-types)`**  
+  Creates a C-compatible function pointer (closure) that executes a Scheme function when called by C.
+  - **Arguments**:
+    - `scheme-func`: Scheme procedure.
+    - `ret-type` (symbol): Return type descriptor.
+    - `arg-types` (list of symbols): Argument types.
+  - **Returns**: A C pointer that can be passed as a callback parameter to C functions.
 
-Standard Scheme relies on recursive helper functions or complex `do` loops for iteration. Lext provides three standard, prefix-prefixed macros (`bc.while`, `bc.for`, `bc.foreach`) which become prefix-free when you open the basic namespace `(open-namespace "bc")`:
+### B. Type Information & Serialization (`src/lext_ffi.c`)
 
-### A. Loop condition: `while`
-Evaluates the body repeatedly while the condition evaluates to `#t`.
-```scheme
-(let ((i 0))
-  (while (< i 5)
-    (format #t "i = ~A\n" i)
-    (set! i (+ i 1))))
-```
+* **`(ffi-typedef name type-desc)`** (Registered in `src/main.c`)  
+  Registers a named type layout alias (such as a struct, union, or array) in the FFI layout cache.
+  - **Arguments**:
+    - `name` (symbol): Unique type name (e.g. `'Point`).
+    - `type-desc` (list/symbol): Type layout descriptor (e.g., `'(struct int int)`).
 
-### B. Index Range Loop: `for`
-* **Syntax**: `(for (variable start end [step]) body ...)` (the `end` bound is exclusive).
-* The step size can be positive or negative. Lext automatically adjusts the termination check.
-```scheme
-;; 1. Simple increment (step defaults to +1): Prints 0 1 2 3 4
-(for (i 0 5)
-  (display i))
+* **`(ffi-deref ptr type-desc)`**  
+  Dereferences a C pointer and decodes the memory according to the specified type layout.
+  - **Arguments**:
+    - `ptr`: C pointer handle.
+    - `type-desc` (symbol/list): The type layout descriptor.
+  - **Returns**: The decoded Scheme representation of the memory.
 
-;; 2. Incrementing with custom step: Prints 0 2 4 6 8
-(for (i 0 10 2)
-  (display i))
+* **`(ffi-set! ptr type-desc value)`**  
+  Serializes and writes a Scheme value to the memory address pointed to by `ptr`.
+  - **Arguments**:
+    - `ptr`: C pointer handle.
+    - `type-desc` (symbol/list): The type layout descriptor.
+    - `value`: Scheme representation.
 
-;; 3. Decrementing step: Prints 10 7 4 1
-(for (i 10 0 -3)
-  (display i))
-```
+* **`(ffi-size type)`**  
+  Returns the size in bytes of the FFI type.
 
-### C. Iterable list Loop: `foreach`
-Iterates over each element in a Scheme list.
-```scheme
-(foreach (word '("hello" "world" "from" "lext"))
-  (format #t "~A " word))
-```
+* **`(ffi-align type)`**  
+  Returns the byte alignment required by the FFI type on the host machine.
 
----
+* **`(c-pointer->integer ptr)`**  
+  Casts a raw C pointer handle to an integer memory address.
 
-## 6. Type Declarations (`struct`, `union`, `enum`)
+* **`(integer->c-pointer addr)`**  
+  Casts an integer memory address to a raw C pointer.
 
-Lext includes declarative macros to describe C memory layouts to the FFI compiler. 
+### C. Tracked Allocations (`src/lext_ffi.c`)
 
-### A. Declarators
-* **`define-c-struct`**: Builds a memory-aligned structure layout.
-* **`define-c-union`**: Builds a overlapping union layout.
-* **`define-c-enum`**: Binds a sequential enumeration to numeric constants in the environment.
+* **`(lext-malloc-tracked size)`**  
+  Allocates a block of heap memory and registers its boundary in the interpreter's safety map.
 
-```scheme
-(use "stdlib/c")
-(open-namespace "c")
+* **`(lext-free-tracked ptr)`**  
+  Frees a tracked pointer and unregisters its address.
 
-;; Declares a aligned struct layout
-(define-c-struct Point
-  (x int)
-  (y int))
+* **`(lext-bounds-check ptr size)`**  
+  Verifies that access to `ptr` for `size` bytes is within its registered allocation boundaries. Raises a runtime error on violation.
 
-;; Declares a union layout (sharing same memory slots)
-(define-c-union IntOrDouble
-  (i int)
-  (d double))
+### D. Native String & Memory Primitives (`src/lext_builtins.c`)
 
-;; Declares an enumeration. Variants can have implicit sequential values or explicit values.
-(define-c-enum State
-  :state-pending       ;; 0
-  :state-active        ;; 1
-  (state-error -100)   ;; -100
-  :state-terminated)   ;; -99
-```
+* **`(lext-calloc nmemb size)`**  
+  Calls calloc to allocate zero-initialized heap memory.
 
-### B. ABI-Compliant Alignment & Caching
-When types are registered via `ffi-typedef`, Lext:
-1. Translates the nested type fields (resolving pointers, arrays, and sub-structs).
-2. Computes the required memory padding and offsets to comply with the host's Application Binary Interface (ABI) requirements.
-3. Hashes the parsed type structure with **MeowHash** and caches it inside the FFI engine. Subsequent function calls passing these structures by value are optimized using the pre-cached ABI layout (avoiding parsing the structure representation on every function call).
+* **`(lext-string->c-string str)`**  
+  Allocates a null-terminated heap buffer populated with the characters of Scheme string `str`.
 
-### C. Scheme Data Mapping Details
+* **`(lext-c-string-from-ptr ptr)`**  
+  Reads a null-terminated C string (`char*`) and returns a Scheme string.
 
-| C Type | Scheme Layout (To C) | Scheme Layout (From C) | Example |
-| :--- | :--- | :--- | :--- |
-| **Flat Struct** | List: `(val1 val2)` | List: `(val1 val2)` | `(10 20)` |
-| **Labeled Struct** | Assoc List: `((label . val)...)` | Assoc List: `((label . val)...)` | `((x . 10) (y . 20))` |
-| **Flat Union** | List: `(active-index val)` | List of all decoded variants | `'(1 3.14)` -> `'(1074339512 3.14)` |
-| **Labeled Union** | Assoc List with single active key | Assoc List of all slot representations | `((d . 3.14))` |
-| **Array** | List or Vector: `'(10 20 30)` or `#(10 20 30)` | List: `(10 20 30)` | `(array int 3)` |
+* **`(lext-c-string-array->list ptr)`**  
+  Reads a null-terminated array of string pointers (`char**`) and returns a Scheme list of strings.
 
----
+* **`(lext-sv->string count data-ptr)`**  
+  Converts a length-bound string buffer slice into a Scheme string.
 
-## 7. Pointer Arithmetic & Memory Navigation (`c.@`, `c.=`, `c.&`)
+### E. Capture & Directory Primitives
 
-Lext provides three core macros to make reading, writing, and navigating C memory pointers safe and concise. They automatically resolve structure offsets and alignment padding at runtime.
+* **`(lext-capture-output thunk)`** (Registered in `src/lext_capture.c`)  
+  Evaluates `thunk` (a zero-argument procedure) and captures anything it prints to `stdout`, returning it as a Scheme string.
 
-* **`c.@` (Deref Path)**: Retrieves a value at a path from a pointer.
-* **`c.=` (Write Path)**: Writes a value to a path from a pointer.
-* **`c.&` (Address Of)**: Returns a typed pointer containing the address of a specific sub-field.
+* **`(lext-walk-dir root proc level)`** (Registered in `src/lext_da.c`)  
+  Recursively walks the file directory starting at `root`. For each file or directory found, it invokes `(proc path type level)`.
 
-### Navigation Rules
-Paths can traverse structs (via symbol fields) and arrays (via integer indexes):
+* **`(lext-da-reserve da-ptr expected-capacity element-size)`** (Registered in `src/lext_da.c`)  
+  Ensures that the dynamic array at `da-ptr` has enough capacity to hold `expected-capacity` items, doubling the allocation size if needed.
 
-```scheme
-;; Assume Point is a struct containing { int x; int y; }
-;; Assume MyData is a struct containing { Point points[3]; char *label; }
-(with-heap-alloc (data MyData)
-  ;; Write to an array member's sub-field
-  (c.= data.points.1.x 100)
-  (c.= data.points.1.y 200)
-  
-  ;; Write to a string pointer
-  (with-c-string (s "Test Label")
-    (c.= data.label s))
-
-  ;; Read values
-  (format #t "Label: ~A\n" (c-string-from-ptr (c.@ data.label)))
-  (format #t "Point [1]: (~A, ~A)\n" (c.@ data.points.1.x) (c.@ data.points.1.y))
-
-  ;; Get direct pointer to data.points[1].y
-  (let ((y-ptr (c.& data.points.1.y)))
-    ;; y-ptr is a typed pointer pointing directly to the memory address of y
-    (format #t "Value of y via direct pointer dereference: ~A\n" (c.deref y-ptr 'int))))
-```
+* **`(lext-da-append-raw da-ptr element-size val-ptr)`** (Registered in `src/lext_da.c`)  
+  Appends raw bytes from `val-ptr` to the dynamic array.
 
 ---
 
-## 8. Memory Sandbox Allocators (`with-heap-alloc`, `with-c-string`, etc.)
+## 5. Standard Library: `basic` Module (`stdlib/basic/lib.lext`)
 
-Memory allocated manually via `c.malloc` must be freed with `c.free`. To prevent memory leaks, Lext provides scoped allocation macros that guarantee cleanup using `dynamic-wind` (even if an error occurs or a non-local escape exit is triggered).
+This module extends the core Scheme syntax with standard control blocks and namespace managers.
 
-### A. `with-heap-alloc` (Struct Allocator)
-Allocates heap memory for a registered type descriptor.
-```scheme
-;; Allocate a Point struct on the heap
-(with-heap-alloc (p Point)
-  (c.= p.x 10)
-  (c.= p.y 20)
-  (format #t "p: ~A, ~A\n" (c.@ p.x) (c.@ p.y))) 
-;; 'p' memory is automatically freed here!
-```
+### A. Loop Constructs (Exposed under `bc.` prefix)
 
-### B. `with-c-string` (C String Marshaller)
-Allocates a temporary null-terminated C string (`char *`) containing the characters of a Scheme string.
-```scheme
-(with-c-string (c-str "Lext Scheme")
-  ;; c-str is a char* pointer
-  (c-puts c-str))
-;; Memory freed automatically here!
-```
+* **`bc.while`** (macro)  
+  Loops while a condition is true.
+  ```scheme
+  (let ((i 0))
+    (bc.while (< i 3)
+      (display i)
+      (set! i (+ i 1))))
+  ```
 
-### C. `with-c-array` (Primitive Array Marshaller)
-Allocates a contiguous C memory buffer populated with values from a Scheme list.
-```scheme
-(with-c-array (arr int '(100 200 300 400))
-  (format #t "Index 2: ~A\n" (c.@ arr.2)))
-;; Memory freed automatically here!
-```
+* **`bc.for`** (macro)  
+  Index range loop. Syntax: `(for (var start end [step]) body ...)`. The `end` boundary is exclusive.
+  ```scheme
+  ;; Prints: 0 1 2
+  (bc.for (i 0 3) (display i))
 
-### D. `with-c-string-array` (String Pointer Array Marshaller)
-Allocates a null-terminated array of string pointers (`char **`), ideal for calling C functions like `execvp`.
-```scheme
-(with-c-string-array (argv '("ls" "-la" "/tmp"))
-  ;; argv is a char** pointer. Individual string buffers are also allocated and freed.
-  (format #t "Command: ~A\n" (c-string-from-ptr (c.@ argv.0))))
-;; All buffers freed automatically here!
-```
+  ;; Prints: 5 3 1
+  (bc.for (i 5 0 -2) (display i))
+  ```
 
----
+* **`bc.foreach`** (macro)  
+  Iterates over each item of a Scheme list.
+  ```scheme
+  (bc.foreach (x '(apple orange banana))
+    (display x))
+  ```
 
-## 9. Tracked Bounds-Checked Memory Allocations
+### B. Namespace Strippers
 
-For high-security operations or debugging memory safety issues, Lext contains a built-in bounds-checking system:
+* **`(open-namespace prefix-arg)`**  
+  Globally registers prefix-free copies of all variables matching `prefix-arg` (e.g. `"bc"`, `"c"`), while protecting core compiler symbols.
+  ```scheme
+  (open-namespace "bc") ;; strips "bc." prefix
+  ;; Now you can use while, for, foreach directly!
+  ```
 
-* **`(c.malloc-tracked size)`**: Allocates memory and registers its address and size in an internal boundary tracking map.
-* **`(c.free-tracked ptr)`**: Removes the tracking entry and frees the memory.
-* **`(c.bounds-check ptr size)`**: Verifies that a pointer read or write operation falls entirely within the allocated boundaries. If a boundary violation is detected, the interpreter raises an error immediately, preventing out-of-bounds corruption.
+* **`(use-namespace prefix-arg . body)`**  
+  Temporarily strips prefixes within the lexical scope of `body`.
+  ```scheme
+  (use-namespace "bc"
+    (for (i 0 3) (display i)))
+  ```
 
 ---
 
-## 10. String Views (`SV`) & Temp Allocators
+## 6. Standard Library: `c` Module (`stdlib/c/lib.lext`)
 
-For high-performance string splitting and slicing without generating excessive heap allocations, Lext includes a **String View** library (similar to C++'s `std::string_view`):
+This module provides low-level C memory allocations, type builders, and pointer utilities.
 
-### A. String View (`SV`) functions:
-* **`(nob.sv-from-cstr string)`**: Creates a string view from a C string.
-* **`(nob.sv-trim sv)`**: Returns a new view stripping leading and trailing whitespace.
-* **`(nob.sv-chop-left sv bytes)`**: Chops characters from the left, returning the chopped view.
-* **`(nob.sv-chop-by-delim sv delimiter-char)`**: Slices the view at a delimiter, updating the view pointer and returning the sliced piece.
-* **`(nob.sv->string sv)`**: Congeals the view back into a native Scheme string.
+### A. Memory Allocations & Helpers
 
-```scheme
-(let* ((sv (nob.sv-from-cstr "  key:value  "))
-       (trimmed (nob.sv-trim sv)))
-  (let ((key-view (nob.sv-chop-by-delim (c.& trimmed) #\:)))
-    (format #t "Key: ~S\n" (nob.sv->string key-view))     ;; Prints: Key: "key"
-    (format #t "Value: ~S\n" (nob.sv->string trimmed))))  ;; Prints: Value: "value"
-```
+* **`(c.malloc size)`** / **`(c.free ptr)`** / **`(c.realloc ptr size)`** / **`(c.calloc nmemb size)`**  
+  Direct interfaces to standard C memory allocators.
 
-### B. Temporary Stack Allocator
-Lext implements a high-performance **Temp Arena Allocator** for scripts that need rapid allocation of transient string copies:
-* `(nob.temp-strdup c-string)`: Duplicates a C string inside the arena.
-* `(nob.temp-alloc size)`: Allocates raw memory in the arena.
-* `(nob.temp-reset)`: Clears the arena in constant time ($O(1)$).
+* **`(c.deref ptr type . path)`**  
+  Dereferences a pointer at a specific field path.
 
----
+* **`(c.set! ptr type value . path)`**  
+  Writes `value` to a pointer at a specific field path.
 
-## 11. Dynamic Arrays (`da`) API
+* **`(c.addr tp . path)`**  
+  Gets a typed pointer representing the address of the sub-field at `path`.
 
-Lext standard libraries represent dynamic arrays as standard C structures:
-```c
-typedef struct {
-    void *items;
-    size_t count;
-    size_t capacity;
-} DynamicArray;
-```
+* **`(c.null-ptr)`** / **`(c.null-ptr? x)`**  
+  Helpers to construct and check for `NULL` pointers.
 
-You can manipulate these arrays directly in Scheme scripts using the `nob.da` API:
-* **`(nob.da-items da)`**: Returns the items pointer.
-* **`(nob.da-count da)`**: Returns the active element count.
-* **`(nob.da-capacity da)`**: Returns the total pre-allocated capacity.
-* **`(nob.da-append da value type)`**: Appends a value (types: `'pointer`, `'ulong`, `'int`, `'uchar`) and automatically doubles the capacity if needed.
-* **`(nob.da-pop da type)`**: Pops the last item from the array.
-* **`(nob.da-first da type)`** / **`(nob.da-last da type)`**: Inspects array boundaries.
-* **`(nob.da-free da)`**: Releases the array items buffer.
+* **`(c.c-cast tp target-type)`**  
+  Changes the type tag associated with a typed pointer.
 
----
+* **`c.malloc-tracked`** / **`c.free-tracked`** / **`c.bounds-check`**  
+  Wrapper definitions for the boundary tracking system.
 
-## 12. Task Orchestration & Shell Execution (`nob` command runner)
+### B. Accessor & Mutator Macros
 
-Lext contains a complete process execution suite, making it a powerful replacement for shell scripts and makefiles.
+* **`c.@`** (Deref path macro)  
+  Dereferences a field or array path from a typed pointer.
+  - *Syntax*: `(c.@ ptr.field.index)`
+  ```scheme
+  (c.@ data.points.0.x)
+  ```
 
-### A. Core Commands execution
-* **`nob.cmd-new`**: Instantiates a new command command-line builder.
-* **`nob.cmd-append cmd arg1 arg2 ...`**: Appends arguments.
-* **`nob.cmd-run cmd [options]`**: Executes command synchronously.
-* **`nob.cmd-run-async cmd [options]`**: Spawns command in background and returns process ID.
-* **`nob.cmd-free cmd`**: Releases command memory.
+* **`c.=`** (Write path macro)  
+  Writes a value to a field or array path from a typed pointer.
+  - *Syntax*: `(c.= ptr.field.index value)`
+  ```scheme
+  (c.= data.points.0.x 42)
+  ```
 
-```scheme
-(let ((cmd (nob.cmd-new)))
-  (nob.cmd-append cmd "gcc" "-O3" "src/main.c" "-o" "build/lext")
-  (if (nob.cmd-run cmd)
-      (display "Compilation succeeded!\n")
-      (error "Compilation failed"))
-  (nob.cmd-free cmd))
-```
+* **`c.&`** (Address-of macro)  
+  Gets a typed pointer pointing to a sub-field or array slot.
+  - *Syntax*: `(c.& ptr.field.index)`
+  ```scheme
+  (define y-addr (c.& data.points.0.y))
+  ```
 
-### B. Piped Shell execution (`nob.chain` & `nob.pipe-create`)
-Lext supports piped command streams without invoking a system shell wrapper:
-```scheme
-(let ((pipe (c.malloc 8)))
-  (nob.pipe-create pipe)
-  ;; Redirect command outputs directly into another command's input:
-  (let ((c-echo (nob.cmd-new))
-        (c-grep (nob.cmd-new)))
-    (nob.cmd-append c-echo "echo" "Lext scripting language")
-    (nob.cmd-append c-grep "grep" "Lext")
-    
-    ;; Piped execution
-    (nob.cmd-run c-echo :stdout-fd (c.@ pipe.write))
-    (nob.cmd-close-fd (c.@ pipe.write))
-    (nob.cmd-run c-grep :stdin-fd (c.@ pipe.read))
-    
-    (nob.cmd-free c-echo)
-    (nob.cmd-free c-grep)
-    (c.free pipe)))
-```
+### C. Declarators
 
----
+* **`define-c-struct`** (macro)  
+  Registers a structured layout.
+  ```scheme
+  (define-c-struct Point
+    (x int)
+    (y int))
+  ```
 
-## 13. Headless GUI Programming with SDL2
+* **`define-c-union`** (macro)  
+  Registers a overlapping union layout.
+  ```scheme
+  (define-c-union IntOrDouble
+    (i int)
+    (d double))
+  ```
 
-Lext's dynamic structures allow running high-performance graphics engines like **SDL2** by wrapping struct pointer events and invoking C functions directly.
+* **`define-c-enum`** (macro)  
+  Declares list of named integer enum constants.
+  ```scheme
+  (define-c-enum State
+    :state-pending
+    :state-active)
+  ```
 
-Below is an abbreviated polling cycle:
-```scheme
-(use "stdlib/c")
-(open-namespace "c")
+* **`c-import`** (macro)  
+  Imports a C function and binds it to a clean Scheme procedure wrapper.
+  - *Syntax*: `(c-import scheme-name lib-handle c-name ret-type arg-types [nfixed])`
+  ```scheme
+  (c-import c-cos libc "cos" double (double))
+  ```
 
-(define sdl (ffi-open "libSDL2.so"))
+### D. Scoped Sandbox Allocators
+Macros that guarantee automatic memory cleanup when control leaves the execution scope:
 
-;; Import SDL2 procedures
-(c-import sdl-init                 sdl "SDL_Init"               int     (int))
-(c-import sdl-create-window        sdl "SDL_CreateWindow"       pointer (string int int int int int))
-(c-import sdl-pollevent            sdl "SDL_PollEvent"          int     (pointer))
-(c-import sdl-destroy-window       sdl "SDL_DestroyWindow"      void    (pointer))
-(c-import sdl-quit                 sdl "SDL_Quit"               void    ())
+* **`with-heap-alloc`** (macro)  
+  Allocates heap memory for a struct or type descriptor.
+  - *Syntax*: `(with-heap-alloc (var type [count]) body ...)`
+  ```scheme
+  (with-heap-alloc (p Point)
+    (c.= p.x 10)
+    (display (c.@ p.x)))
+  ```
 
-;; Register SDL Keyboard Event Structure for FFI
-(ffi-typedef 'SDL_KeyboardEvent
-             '(struct (uint32 type)
-                      (uint32 timestamp)
-                      (uint32 windowID)
-                      (uint8 state)
-                      (uint8 repeat)
-                      (uint8 padding2)
-                      (uint8 padding3)
-                      (int32 scancode)
-                      (int32 sym)
-                      (uint16 mod)
-                      (uint32 unused)))
+* **`with-c-string`** (macro)  
+  Allocates a temporary null-terminated C string (`char*`).
+  - *Syntax*: `(with-c-string (var "my string") body ...)`
 
-(sdl-init 32) ;; SDL_INIT_VIDEO
-(define win (sdl-create-window "Lext SDL Window" 0 0 640 480 4))
+* **`with-c-array`** (macro)  
+  Allocates a temporary primitive array from a Scheme list.
+  - *Syntax*: `(with-c-array (var int '(1 2 3)) body ...)`
 
-(let ((event-ptr (malloc 56))) ;; Event buffer
-  (let loop ()
-    (if (> (sdl-pollevent event-ptr) 0)
-        (let ((type (ffi-deref event-ptr 'int)))
-          (cond
-            ((= type #x100) (display "Quit Event triggered!\n")) ;; SDL_QUIT
-            ((= type #x300)                                     ;; SDL_KEYDOWN
-             (let ((key (ffi-deref event-ptr 'SDL_KeyboardEvent)))
-               (format #t "Key Pressed: scancode=~A, sym=~A\n" 
-                       (cdr (assoc 'scancode key)) 
-                       (cdr (assoc 'sym key)))
-               (loop)))
-            (else (loop))))))
-  (free event-ptr))
+* **`with-c-string-array`** (macro)  
+  Allocates a temporary null-terminated pointer array (`char**`).
+  - *Syntax*: `(with-c-string-array (var '("a" "b" "c")) body ...)`
 
-(sdl-destroy-window win)
-(sdl-quit)
-```
+* **`capture`** (macro)  
+  Runs the body and captures standard output as a string.
 
 ---
 
-## 14. Template Engine & Raw String Literals
+## 7. The Task Runner Library: `libnob` Reference
+
+The `libnob` library contains utility bindings for task running, process execution, file descriptors, file systems, arena stack allocations, and dynamic array handling.
+
+> [!NOTE]
+> Rather than maintaining a verbose duplicated list of these functions in text documentation, **you are encouraged to read the standard library code directly**. It is fully documented and readable:
+> * [stdlib/libnob/lib.lext](file:///home/goad/Documents/dev/lext/stdlib/libnob/lib.lext)
+
+### Summary of APIs available in `libnob`:
+* **Process Runner**: `nob.cmd-new`, `nob.cmd-append`, `nob.cmd-run`, `nob.cmd-run-async`, `nob.cmd-free`, `nob.procs-wait-and-reset`, `nob.procs-append-with-flush`, `nob.pipe-create`.
+* **Process Pipes / Chains**: `nob.chain-begin`, `nob.chain-cmd`, `nob.chain-end`.
+* **File System Operations**: `nob.write-entire-file`, `nob.read-entire-file`, `nob.file-exists`, `nob.delete-file`, `nob.mkdir-if-not-exists`, `nob.copy-file`, `nob.copy-directory-recursively`, `nob.walk-dir`, `nob.get-file-type`, `nob.rename`.
+* **Arena stack allocators**: `nob.temp-reset`, `nob.temp-save`, `nob.temp-rewind`, `nob.temp-strdup`, `nob.temp-alloc`.
+* **String Views (`SV`)**: `nob.sv-from-cstr`, `nob.sv-trim`, `nob.sv-chop-left`, `nob.sv-chop-by-delim`, `nob.sv-eq`, `nob.sv->string`.
+* **Dynamic Arrays**: `nob.da-items`, `nob.da-count`, `nob.da-capacity`, `nob.da-append`, `nob.da-pop`, `nob.da-free`, `nob.da-reserve`.
+
+---
+
+## 8. Template Engine & Raw String Literals
 
 When run in templating mode (without the `-s` script flag), Lext parses files, looking for `@@(...)` expressions.
 
@@ -433,7 +375,7 @@ When run in templating mode (without the `-s` script flag), Lext parses files, l
 
 ---
 
-## 15. Emacs Major Mode Integration
+## 9. Emacs Major Mode Integration
 
 The major mode **`lext-mode`** (located in `lext-mode.el`) provides a complete development environment for Emacs:
 
