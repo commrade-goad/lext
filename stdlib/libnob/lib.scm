@@ -1,3 +1,4 @@
+(use "stdlib/basic")
 (define internal-libnob (ffi-open #f))
 
 (define-macro (internal-libnob-c-import scheme-name lib-handle c-name ret-type arg-types . nfixed)
@@ -9,11 +10,7 @@
               `(ffi-call ,func-ptr ',ret-type ',arg-types args)
               `(ffi-call ,func-ptr ',ret-type ',arg-types args ,(car nfixed)))))))
 
-;; Libc memory management
-(define internal-libnob-libc (ffi-open #f))
-(internal-libnob-c-import internal-libnob-malloc internal-libnob-libc "malloc" pointer (int))
-(internal-libnob-c-import internal-libnob-free   internal-libnob-libc "free"   void    (pointer))
-(internal-libnob-c-import internal-libnob-realloc internal-libnob-libc "realloc" pointer (pointer int))
+
 
 ;; Pointer Arithmetic Helpers
 (define (nob.c-pointer->integer ptr)
@@ -191,7 +188,7 @@
 
 ;; nob.cmd-new: allocate and initialize a new Nob_Cmd
 (define (nob.cmd-new)
-  (let ((ptr (internal-libnob-malloc 24)))
+  (let ((ptr (bc.malloc 24)))
     (ffi-set! ptr 'Nob_Cmd '((items . ()) (count . 0) (capacity . 0)))
     ptr))
 
@@ -199,20 +196,20 @@
 (define (nob.cmd-append cmd . args)
   (for-each
     (lambda (arg)
-      (let ((str-ptr-buf (internal-libnob-malloc 8)))
+      (let ((str-ptr-buf (bc.malloc 8)))
         (ffi-set! str-ptr-buf 'pointer arg)
         (internal-nob-cmd-append cmd 1 str-ptr-buf)
-        (internal-libnob-free str-ptr-buf)))
+        (bc.free str-ptr-buf)))
     args))
 
-;; nob.cmd-free: internal-libnob-free a Nob_Cmd and its internal items buffer
+;; nob.cmd-free: bc.free a Nob_Cmd and its internal items buffer
 (define (nob.cmd-free cmd)
   (if (and (not (null? cmd)) (not (eq? cmd 0)))
       (let* ((cmd-struct (ffi-deref cmd 'Nob_Cmd))
              (items-ptr (cdr (assoc 'items cmd-struct))))
         (if (not (null? items-ptr))
-            (internal-libnob-free items-ptr))
-        (internal-libnob-free cmd))))
+            (bc.free items-ptr))
+        (bc.free cmd))))
 
 ;; nob.cmd-run: run a command with Scheme-style keyword arguments.
 ;; Supports passing either a Nob_Cmd pointer OR a list of strings directly.
@@ -260,7 +257,7 @@
 
 ;; nob.read-entire-file: read file into string using string builder FFI
 (define (nob.read-entire-file path)
-  (let ((sb (internal-libnob-malloc 24)))
+  (let ((sb (bc.malloc 24)))
     (ffi-set! sb 'Nob_String_Builder '((items . ()) (count . 0) (capacity . 0)))
     (let ((success (not (= (internal-nob-read-entire-file path sb) 0))))
       (if success
@@ -271,14 +268,14 @@
                 (let* ((bytes (ffi-deref items-ptr (list 'array 'char count)))
                        (chars (map integer->char bytes))
                        (str (list->string chars)))
-                  (if (not (null? items-ptr)) (internal-libnob-free items-ptr))
-                  (internal-libnob-free sb)
+                  (if (not (null? items-ptr)) (bc.free items-ptr))
+                  (bc.free sb)
                   str)
                 (begin
-                  (internal-libnob-free sb)
+                  (bc.free sb)
                   "")))
           (begin
-            (internal-libnob-free sb)
+            (bc.free sb)
             #f)))))
 
 ;; nob.write-entire-file: write string data directly to file
@@ -336,7 +333,7 @@
 
 ;; nob.read-entire-dir: read directory and return list of file names
 (define (nob.read-entire-dir parent)
-  (let ((children (internal-libnob-malloc 24)))
+  (let ((children (bc.malloc 24)))
     (ffi-set! children 'Nob_File_Paths '((items . ()) (count . 0) (capacity . 0)))
     (let ((success (not (= (internal-nob-read-entire-dir parent children) 0))))
       (if success
@@ -351,11 +348,11 @@
                            (str (ffi-deref str-ptr 'string)))
                       (set! result (cons str result))
                       (loop (+ i 1))))))
-            (if (and (not (null? items-ptr)) (not (eq? items-ptr 0))) (internal-libnob-free items-ptr))
-            (internal-libnob-free children)
+            (if (and (not (null? items-ptr)) (not (eq? items-ptr 0))) (bc.free items-ptr))
+            (bc.free children)
             (reverse result))
           (begin
-            (internal-libnob-free children)
+            (bc.free children)
             #f)))))
 
 ;; nob.sb-pad-align: pad string builder to alignment size boundary
@@ -488,7 +485,7 @@
   (let* ((da-struct (nob.da-get da))
          (items (cdr (assoc 'items da-struct))))
     (if (and (not (null? items)) (not (eq? items 0)))
-        (internal-libnob-free items))
+        (bc.free items))
     (nob.da-update! da '() 0 0)))
 
 (define (nob.da-reserve da expected-capacity element-size)
@@ -502,7 +499,7 @@
                                (if (> expected-capacity cap)
                                    (loop (* cap 2))
                                    cap)))
-               (new-items (internal-libnob-realloc items (* new-capacity element-size))))
+               (new-items (bc.realloc items (* new-capacity element-size))))
           (nob.da-update! da new-items count new-capacity)))))
 
 (define-macro (nob.da-append da item type)
@@ -613,7 +610,7 @@
 
 ;; --- Command Render and Run Wrappers ---
 (define (nob.cmd-render cmd)
-  (let ((sb (internal-libnob-malloc 24)))
+  (let ((sb (bc.malloc 24)))
     (ffi-set! sb 'Nob_String_Builder '((items . ()) (count . 0) (capacity . 0)))
     (internal-nob-cmd-render (if (c-pointer? cmd) (ffi-deref cmd 'Nob_Cmd) cmd) sb)
     (let* ((sb-struct (ffi-deref sb 'Nob_String_Builder))
@@ -624,8 +621,8 @@
                            (chars (map integer->char bytes)))
                       (list->string chars))
                     "")))
-      (if (and (not (null? items-ptr)) (not (eq? items-ptr 0))) (internal-libnob-free items-ptr))
-      (internal-libnob-free sb)
+      (if (and (not (null? items-ptr)) (not (eq? items-ptr 0))) (bc.free items-ptr))
+      (bc.free sb)
       str)))
 
 (define (nob.cmd-run-async cmd)
