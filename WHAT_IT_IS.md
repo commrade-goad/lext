@@ -374,6 +374,20 @@ Lext resolves structure layout padding and array math at runtime. You navigate p
     :state-active)
   ```
 
+* **`(c-size type)`**  
+  Returns the size in bytes of the given FFI type layout tag, automatically translating Lext-style types (like pointers and arrays).
+  ```scheme
+  (c-size 'Point)          ;; Returns 8
+  (c-size '(* Point))      ;; Returns 8 (size of raw pointer)
+  ```
+
+* **`(translate-ffi-type type)`**  
+  Translates a Lext-style FFI type syntax descriptor into s7 FFI low-level layouts.
+  ```scheme
+  (translate-ffi-type '(* char))       ;; Returns 'pointer
+  (translate-ffi-type '(array int 10))  ;; Returns '(array int 10)
+  ```
+
 * **`c-import`** (macro)  
   Imports a C function and binds it to a clean Scheme procedure wrapper.
   - *Syntax*: `(c-import scheme-name lib-handle c-name ret-type arg-types [nfixed])`
