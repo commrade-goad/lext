@@ -10,6 +10,18 @@
 #define HASHVER "unknown"
 #endif
 
+#if defined(_WIN32) || defined(_WIN64) || defined(__CYGWIN__)
+#define PLATFORM_NAME "windows"
+#elif defined(__APPLE__) || defined(__MACH__)
+#define PLATFORM_NAME "macos"
+#elif defined(__linux__)
+#define PLATFORM_NAME "linux"
+#elif defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+#define PLATFORM_NAME "freebsd"
+#else
+#define PLATFORM_NAME "unknown"
+#endif
+
 #include <dlfcn.h>
 #include <ffi.h>
 
@@ -100,7 +112,8 @@ static s7_pointer resolve_type_desc(s7_scheme *sc, s7_pointer type_desc) {
             strcmp(name, "int16") == 0 || strcmp(name, "uint16") == 0 ||
             strcmp(name, "int32") == 0 || strcmp(name, "uint32") == 0 ||
             strcmp(name, "long") == 0 || strcmp(name, "ulong") == 0 ||
-            strcmp(name, "int64") == 0 || strcmp(name, "uint64") == 0) {
+            strcmp(name, "int64") == 0 || strcmp(name, "uint64") == 0 ||
+            strcmp(name, "size_t") == 0) {
             return type_desc;
         }
         s7_pointer resolved = lookup_named_type(sc, type_desc);
@@ -125,7 +138,8 @@ static bool type_has_integer(s7_scheme *sc, s7_pointer type_desc) {
             strcmp(name, "int16") == 0 || strcmp(name, "uint16") == 0 ||
             strcmp(name, "int32") == 0 || strcmp(name, "uint32") == 0 ||
             strcmp(name, "long") == 0 || strcmp(name, "ulong") == 0 ||
-            strcmp(name, "int64") == 0 || strcmp(name, "uint64") == 0) {
+            strcmp(name, "int64") == 0 || strcmp(name, "uint64") == 0 ||
+            strcmp(name, "size_t") == 0) {
             return true;
         }
         return false;
@@ -146,6 +160,9 @@ static bool type_has_integer(s7_scheme *sc, s7_pointer type_desc) {
                     if (type_has_integer(sc, f_type)) return true;
                     curr = s7_cdr(curr);
                 }
+            }
+            if (strcmp(head_name, "*") == 0) {
+                return true;
             }
             if (strcmp(head_name, "array") == 0) {
                 return type_has_integer(sc, s7_cadr(type_desc));
@@ -184,6 +201,10 @@ static ffi_type *parse_ffi_type_rec(s7_scheme *sc, s7_pointer type_desc, TypeAll
         if (strcmp(name, "ulong") == 0) return &ffi_type_ulong;
         if (strcmp(name, "int64") == 0) return &ffi_type_sint64;
         if (strcmp(name, "uint64") == 0) return &ffi_type_uint64;
+        if (strcmp(name, "size_t") == 0) {
+            if (sizeof(size_t) == 8) return &ffi_type_uint64;
+            else return &ffi_type_uint32;
+        }
 
         return NULL;
     }
@@ -218,6 +239,9 @@ static ffi_type *parse_ffi_type_rec(s7_scheme *sc, s7_pointer type_desc, TypeAll
                 *allocs = node;
 
                 return stype;
+            }
+            if (strcmp(head_name, "*") == 0) {
+                return &ffi_type_pointer;
             }
             if (strcmp(head_name, "struct") == 0) {
                 s7_pointer fields = s7_cdr(type_desc);
@@ -1063,6 +1087,234 @@ static s7_pointer ffi_set_bang(s7_scheme *sc, s7_pointer args) {
     return s7_unspecified(sc);
 }
 
+static s7_pointer ffi_size(s7_scheme *sc, s7_pointer args) {
+    s7_pointer type_arg = s7_car(args);
+    TypeAlloc *allocs = NULL;
+    ffi_type *ft = parse_ffi_type_rec(sc, type_arg, &allocs);
+    if (!ft) {
+        TypeAlloc *curr_alloc = allocs;
+        while (curr_alloc) {
+            TypeAlloc *next = curr_alloc->next;
+            free(curr_alloc->type->elements);
+            free(curr_alloc->type);
+            free(curr_alloc);
+            curr_alloc = next;
+        }
+        return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
+                        s7_list(sc, 2, s7_make_string(sc, "invalid type descriptor: ~S"), type_arg));
+    }
+    if (ft->type == FFI_TYPE_STRUCT && ft->size == 0) {
+        ffi_cif dummy_cif;
+        ffi_prep_cif(&dummy_cif, FFI_DEFAULT_ABI, 0, ft, NULL);
+    }
+    s7_int size = ft->size;
+    TypeAlloc *curr_alloc = allocs;
+    while (curr_alloc) {
+        TypeAlloc *next = curr_alloc->next;
+        free(curr_alloc->type->elements);
+        free(curr_alloc->type);
+        free(curr_alloc);
+        curr_alloc = next;
+    }
+    return s7_make_integer(sc, size);
+}
+
+static s7_pointer ffi_align(s7_scheme *sc, s7_pointer args) {
+    s7_pointer type_arg = s7_car(args);
+    TypeAlloc *allocs = NULL;
+    ffi_type *ft = parse_ffi_type_rec(sc, type_arg, &allocs);
+    if (!ft) {
+        TypeAlloc *curr_alloc = allocs;
+        while (curr_alloc) {
+            TypeAlloc *next = curr_alloc->next;
+            free(curr_alloc->type->elements);
+            free(curr_alloc->type);
+            free(curr_alloc);
+            curr_alloc = next;
+        }
+        return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
+                        s7_list(sc, 2, s7_make_string(sc, "invalid type descriptor: ~S"), type_arg));
+    }
+    if (ft->type == FFI_TYPE_STRUCT && ft->size == 0) {
+        ffi_cif dummy_cif;
+        ffi_prep_cif(&dummy_cif, FFI_DEFAULT_ABI, 0, ft, NULL);
+    }
+    s7_int align = ft->alignment;
+    TypeAlloc *curr_alloc = allocs;
+    while (curr_alloc) {
+        TypeAlloc *next = curr_alloc->next;
+        free(curr_alloc->type->elements);
+        free(curr_alloc->type);
+        free(curr_alloc);
+        curr_alloc = next;
+    }
+    return s7_make_integer(sc, align);
+}
+
+static s7_pointer s7_c_pointer_to_integer(s7_scheme *sc, s7_pointer args) {
+    s7_pointer p = s7_car(args);
+    if (!s7_is_c_pointer(p)) {
+        return s7_wrong_type_arg_error(sc, "c-pointer->integer", 1, p, "c-pointer");
+    }
+    return s7_make_integer(sc, (s7_int)s7_c_pointer(p));
+}
+
+static s7_pointer s7_integer_to_c_pointer(s7_scheme *sc, s7_pointer args) {
+    s7_pointer val = s7_car(args);
+    if (!s7_is_integer(val)) {
+        return s7_wrong_type_arg_error(sc, "integer->c-pointer", 1, val, "integer");
+    }
+    return s7_make_c_pointer(sc, (void *)s7_integer(val));
+}
+
+typedef struct {
+    s7_scheme *sc;
+    s7_int proc_loc;
+    s7_int ret_type_loc;
+    s7_int arg_types_loc;
+    ffi_cif cif;
+    ffi_type **arg_types;
+    TypeAlloc *allocs;
+} CallbackCtx;
+
+static void closure_binding_func(ffi_cif *cif, void *ret, void **args, void *user_data) {
+    CallbackCtx *ctx = (CallbackCtx *)user_data;
+    s7_scheme *sc = ctx->sc;
+    int nargs = cif->nargs;
+    s7_pointer scheme_args = s7_nil(sc);
+    s7_pointer arg_types_list = s7_gc_protected_at(sc, ctx->arg_types_loc);
+    s7_pointer curr_type = arg_types_list;
+    for (int i = 0; i < nargs; i++) {
+        s7_pointer type_desc = s7_car(curr_type);
+        s7_pointer val = read_val(sc, args[i], type_desc, cif->arg_types[i]);
+        scheme_args = s7_cons(sc, val, scheme_args);
+        curr_type = s7_cdr(curr_type);
+    }
+    scheme_args = s7_reverse(sc, scheme_args);
+    s7_pointer proc = s7_gc_protected_at(sc, ctx->proc_loc);
+    s7_pointer result = s7_call(sc, proc, scheme_args);
+    s7_pointer ret_type_desc = s7_gc_protected_at(sc, ctx->ret_type_loc);
+    write_val(sc, ret, ret_type_desc, cif->rtype, result);
+}
+
+static s7_pointer s7_ffi_callback(s7_scheme *sc, s7_pointer args) {
+    s7_pointer proc = s7_car(args);
+    s7_pointer ret_type_arg = s7_cadr(args);
+    s7_pointer arg_types_list = s7_caddr(args);
+
+    if (!s7_is_procedure(proc)) {
+        return s7_wrong_type_arg_error(sc, "ffi-callback", 1, proc, "procedure");
+    }
+
+    TypeAlloc *allocs = NULL;
+    ffi_type *ret_type = parse_ffi_type_rec(sc, ret_type_arg, &allocs);
+    if (!ret_type) {
+        TypeAlloc *curr_alloc = allocs;
+        while (curr_alloc) {
+            TypeAlloc *next = curr_alloc->next;
+            free(curr_alloc->type->elements);
+            free(curr_alloc->type);
+            free(curr_alloc);
+            curr_alloc = next;
+        }
+        return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
+                        s7_list(sc, 2, s7_make_string(sc, "invalid callback return type: ~S"), ret_type_arg));
+    }
+
+    int nargs = s7_list_length(sc, arg_types_list);
+    ffi_type **arg_types = malloc(nargs * sizeof(ffi_type *));
+    s7_pointer t_curr = arg_types_list;
+
+    for (int i = 0; i < nargs; i++) {
+        s7_pointer t_sym = s7_car(t_curr);
+        ffi_type *t = parse_ffi_type_rec(sc, t_sym, &allocs);
+        if (!t) {
+            TypeAlloc *curr_alloc = allocs;
+            while (curr_alloc) {
+                TypeAlloc *next = curr_alloc->next;
+                free(curr_alloc->type->elements);
+                free(curr_alloc->type);
+                free(curr_alloc);
+                curr_alloc = next;
+            }
+            free(arg_types);
+            return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
+                            s7_list(sc, 2, s7_make_string(sc, "invalid callback argument type: ~S"), t_sym));
+        }
+        arg_types[i] = t;
+        t_curr = s7_cdr(t_curr);
+    }
+
+    CallbackCtx *ctx = malloc(sizeof(CallbackCtx));
+    ctx->sc = sc;
+    ctx->proc_loc = s7_gc_protect(sc, proc);
+    ctx->ret_type_loc = s7_gc_protect(sc, ret_type_arg);
+    ctx->arg_types_loc = s7_gc_protect(sc, arg_types_list);
+    ctx->arg_types = arg_types;
+    ctx->allocs = allocs;
+
+    ffi_status prep_status = ffi_prep_cif(&(ctx->cif), FFI_DEFAULT_ABI, nargs, ret_type, arg_types);
+    if (prep_status != FFI_OK) {
+        s7_gc_unprotect_at(sc, ctx->proc_loc);
+        s7_gc_unprotect_at(sc, ctx->ret_type_loc);
+        s7_gc_unprotect_at(sc, ctx->arg_types_loc);
+        free(arg_types);
+        free(ctx);
+        TypeAlloc *curr_alloc = allocs;
+        while (curr_alloc) {
+            TypeAlloc *next = curr_alloc->next;
+            free(curr_alloc->type->elements);
+            free(curr_alloc->type);
+            free(curr_alloc);
+            curr_alloc = next;
+        }
+        return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
+                        s7_list(sc, 1, s7_make_string(sc, "ffi_prep_cif failed for callback")));
+    }
+
+    void *code_ptr = NULL;
+    ffi_closure *closure = ffi_closure_alloc(sizeof(ffi_closure), &code_ptr);
+    if (!closure) {
+        s7_gc_unprotect_at(sc, ctx->proc_loc);
+        s7_gc_unprotect_at(sc, ctx->ret_type_loc);
+        s7_gc_unprotect_at(sc, ctx->arg_types_loc);
+        free(arg_types);
+        free(ctx);
+        TypeAlloc *curr_alloc = allocs;
+        while (curr_alloc) {
+            TypeAlloc *next = curr_alloc->next;
+            free(curr_alloc->type->elements);
+            free(curr_alloc->type);
+            free(curr_alloc);
+            curr_alloc = next;
+        }
+        return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
+                        s7_list(sc, 1, s7_make_string(sc, "ffi_closure_alloc failed")));
+    }
+
+    prep_status = ffi_prep_closure_loc(closure, &(ctx->cif), closure_binding_func, ctx, code_ptr);
+    if (prep_status != FFI_OK) {
+        ffi_closure_free(closure);
+        s7_gc_unprotect_at(sc, ctx->proc_loc);
+        s7_gc_unprotect_at(sc, ctx->ret_type_loc);
+        s7_gc_unprotect_at(sc, ctx->arg_types_loc);
+        free(arg_types);
+        free(ctx);
+        TypeAlloc *curr_alloc = allocs;
+        while (curr_alloc) {
+            TypeAlloc *next = curr_alloc->next;
+            free(curr_alloc->type->elements);
+            free(curr_alloc->type);
+            free(curr_alloc);
+            curr_alloc = next;
+        }
+        return s7_error(sc, s7_make_symbol(sc, "ffi-error"),
+                        s7_list(sc, 1, s7_make_string(sc, "ffi_prep_closure_loc failed")));
+    }
+
+    return s7_make_c_pointer(sc, code_ptr);
+}
+
 
 // Lexer states for stripping or capturing delimiters
 enum State {
@@ -1177,6 +1429,11 @@ int main(int argc, char **argv) {
     s7_define_function(s7, "ffi-call", s7_ffi_call, 4, 1, false, "(ffi-call func ret-type arg-types arg-vals [nfixed]) invokes foreign function");
     s7_define_function(s7, "ffi-deref", ffi_deref, 2, 0, false, "(ffi-deref ptr type-desc) dereferences pointer using type description");
     s7_define_function(s7, "ffi-set!", ffi_set_bang, 3, 0, false, "(ffi-set! ptr type-desc value) writes value to pointer using type description");
+    s7_define_function(s7, "ffi-size", ffi_size, 1, 0, false, "(ffi-size type) returns size of FFI type in bytes");
+    s7_define_function(s7, "ffi-align", ffi_align, 1, 0, false, "(ffi-align type) returns alignment of FFI type");
+    s7_define_function(s7, "c-pointer->integer", s7_c_pointer_to_integer, 1, 0, false, "(c-pointer->integer ptr) converts c-pointer to integer");
+    s7_define_function(s7, "integer->c-pointer", s7_integer_to_c_pointer, 1, 0, false, "(integer->c-pointer addr) converts integer to c-pointer");
+    s7_define_function(s7, "ffi-callback", s7_ffi_callback, 3, 0, false, "(ffi-callback proc ret-type arg-types) creates a C function pointer from a Scheme procedure");
 
     // Initialize command line arguments list
     s7_pointer scheme_script_input = s7_make_string(s7, script_name);
@@ -1187,6 +1444,7 @@ int main(int argc, char **argv) {
     s7_define_variable(s7, "*script-name*", scheme_script_input);
     s7_define_variable(s7, "*argv*", argv_list);
     s7_define_variable(s7, "argv", argv_list);
+    s7_define_variable(s7, "*platform*", s7_make_string(s7, PLATFORM_NAME));
 
 
     if (no_template) {

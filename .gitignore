@@ -1,4 +1,5 @@
 *.o
+*.a
 texm
 lext
 s7.tar.gz

@@ -14,25 +14,16 @@
 (c-import malloc libc "malloc" pointer (int))
 (c-import free   libc "free"   void    (pointer))
 (c-import realloc libc "realloc" pointer (pointer int))
-(c-import memmove libc "memmove" pointer (ulong pointer ulong))
 
 ;; Pointer Arithmetic Helpers
 (define (nob.c-pointer->integer ptr)
-  (let* ((str (object->string ptr))
-         (len (string-length str)))
-    (let loop ((i 0))
-      (if (< (+ i 2) len)
-          (if (and (char=? (string-ref str i) #\0)
-                   (char=? (string-ref str (+ i 1)) #\x))
-              (string->number (substring str (+ i 2) (- len 1)) 16)
-              (loop (+ i 1)))
-          0))))
+  (c-pointer->integer ptr))
 
 (define (nob.integer->c-pointer addr)
-  (memmove addr () 0))
+  (integer->c-pointer addr))
 
 (define (nob.pointer-add ptr offset)
-  (nob.integer->c-pointer (+ (nob.c-pointer->integer ptr) offset)))
+  (integer->c-pointer (+ (c-pointer->integer ptr) offset)))
 
 ;; C Struct Type Registrations
 (ffi-typedef 'Nob_Cmd

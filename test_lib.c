@@ -26,3 +26,10 @@ double print_union(IntOrDouble u, int is_double) {
         return (double)u.i;
     }
 }
+
+double run_callback(double (*cb)(int), int val) {
+    printf("C calling callback with %d...\n", val);
+    double res = cb(val);
+    printf("C callback returned %f\n", res);
+    return res;
+}
