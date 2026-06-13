@@ -13,6 +13,12 @@ This document provides a detailed overview of the core runtime engine, the C-sid
 4. [C-Side Core Built-in Reference](#4-c-side-core-built-in-reference)
 5. [Standard Library: `basic` Module (`stdlib/basic/lib.lext`)](#5-standard-library-basic-module-stdlibbasicliblext)
 6. [Standard Library: `c` Module (`stdlib/c/lib.lext`)](#6-standard-library-c-module-stdlibcliblext)
+   - [Memory Allocation Primitives](#memory-allocation-primitives)
+   - [Pointer Accessors & Mutators (`c.@`, `c.=`, `c.&`)](#pointer-accessors--mutators-c-c-c)
+   - [Layout Declarators (`struct`, `union`, `enum`)](#layout-declarators-struct-union-enum)
+   - [Scoped Sandbox Allocators (`with-heap-alloc`, `with-alloc`, etc.)](#scoped-sandbox-allocators-with-heap-alloc-with-alloc-etc)
+   - [String & Array Marshalling Helpers](#string--array-marshalling-helpers)
+   - [Output Capture Macro (`capture`)](#output-capture-macro-capture)
 7. [The Task Runner Library: `libnob` Reference](#7-the-task-runner-library-libnob-reference)
 8. [Template Engine & Raw String Literals](#8-template-engine--raw-string-literals)
 9. [Emacs Major Mode Integration](#9-emacs-major-mode-integration)
@@ -143,7 +149,13 @@ The `lext` interpreter registers several low-level primitives in the global envi
   Frees a tracked pointer and unregisters its address.
 
 * **`(lext-bounds-check ptr size)`**  
-  Verifies that access to `ptr` for `size` bytes is within its registered allocation boundaries. Raises a runtime error on violation.
+  Verifies that access to `ptr` for `size` bytes is within its registered allocation boundaries. Returns `#t` if valid, `#f` otherwise.
+
+* **`(lext-register-bounds ptr size)`**  
+  Manually registers memory boundaries for any pointer `ptr` with a size of `size` bytes in the boundary table.
+
+* **`(lext-unregister-bounds ptr)`**  
+  Deregisters the pointer `ptr` from the boundary tracking table.
 
 ### D. Native String & Memory Primitives (`src/lext_builtins.c`)
 
@@ -189,7 +201,7 @@ This module extends the core Scheme syntax with standard control blocks and name
   ```scheme
   (let ((i 0))
     (bc.while (< i 3)
-      (display i)
+      (format #t "i = ~A\n" i)
       (set! i (+ i 1))))
   ```
 
@@ -207,7 +219,7 @@ This module extends the core Scheme syntax with standard control blocks and name
   Iterates over each item of a Scheme list.
   ```scheme
   (bc.foreach (x '(apple orange banana))
-    (display x))
+    (format #t "Fruit: ~A\n" x))
   ```
 
 ### B. Namespace Strippers
@@ -232,30 +244,42 @@ This module extends the core Scheme syntax with standard control blocks and name
 
 This module provides low-level C memory allocations, type builders, and pointer utilities.
 
-### A. Memory Allocations & Helpers
+### Memory Allocation Primitives
 
-* **`(c.malloc size)`** / **`(c.free ptr)`** / **`(c.realloc ptr size)`** / **`(c.calloc nmemb size)`**  
-  Direct interfaces to standard C memory allocators.
+To guarantee safety, all core allocations (`c.malloc`, `c.free`, `c.realloc`, and `c.calloc`) are automatically bound to Lext's C boundary tracking table.
 
-* **`(c.deref ptr type . path)`**  
-  Dereferences a pointer at a specific field path.
+* **`(c.malloc size)`**  
+  Allocates `size` bytes of C memory, registers it in the bounds table, and returns a C pointer.
+  ```scheme
+  (define ptr (c.malloc 16))
+  ```
 
-* **`(c.set! ptr type value . path)`**  
-  Writes `value` to a pointer at a specific field path.
+* **`(c.free ptr)`**  
+  Removes `ptr` from the bounds table and releases its memory.
+  ```scheme
+  (c.free ptr)
+  ```
 
-* **`(c.addr tp . path)`**  
-  Gets a typed pointer representing the address of the sub-field at `path`.
+* **`(c.realloc ptr size)`**  
+  Reallocates `ptr` to a new `size` in bytes, safely deregisters the old address, and registers the new address.
+  ```scheme
+  (set! ptr (c.realloc ptr 32))
+  ```
 
-* **`(c.null-ptr)`** / **`(c.null-ptr? x)`**  
-  Helpers to construct and check for `NULL` pointers.
+* **`(c.calloc nmemb size)`**  
+  Allocates a zero-initialized heap block for `nmemb` elements of `size` bytes each and registers the total bounds.
+  ```scheme
+  (define zeroed-ptr (c.calloc 10 4)) ;; Allocates 40 zeroed bytes
+  ```
 
-* **`(c.c-cast tp target-type)`**  
-  Changes the type tag associated with a typed pointer.
+* **`(c.malloc-tracked size)`** / **`(c.free-tracked ptr)`** / **`(c.bounds-check ptr size)`**  
+  Expose direct bounds table query interfaces.
 
-* **`c.malloc-tracked`** / **`c.free-tracked`** / **`c.bounds-check`**  
-  Wrapper definitions for the boundary tracking system.
+---
 
-### B. Accessor & Mutator Macros
+### Pointer Accessors & Mutators (`c.@`, `c.=`, `c.&`)
+
+Lext resolves structure layout padding and array math at runtime. You navigate pointers using field path symbols separated by dots (`.`):
 
 * **`c.@`** (Deref path macro)  
   Dereferences a field or array path from a typed pointer.
@@ -278,10 +302,30 @@ This module provides low-level C memory allocations, type builders, and pointer 
   (define y-addr (c.& data.points.0.y))
   ```
 
-### C. Declarators
+* **`(c.deref ptr type . path)`**  
+  Functional counterpart of `c.@`.
+
+* **`(c.set! ptr type value . path)`**  
+  Functional counterpart of `c.=`.
+
+* **`(c.addr tp . path)`**  
+  Functional counterpart of `c.&`.
+
+* **`(c.null-ptr)`** / **`(c.null-ptr? x)`**  
+  Constructs and checks for `NULL` pointers.
+
+* **`(c.c-cast tp target-type)`**  
+  Casts a typed pointer to a different type layout tags.
+  ```scheme
+  (define char-ptr (c.c-cast int-ptr 'char))
+  ```
+
+---
+
+### Layout Declarators (`struct`, `union`, `enum`)
 
 * **`define-c-struct`** (macro)  
-  Registers a structured layout.
+  Registers a structured layout with the ABI compiler.
   ```scheme
   (define-c-struct Point
     (x int)
@@ -297,7 +341,7 @@ This module provides low-level C memory allocations, type builders, and pointer 
   ```
 
 * **`define-c-enum`** (macro)  
-  Declares list of named integer enum constants.
+  Declares a list of named integer enum constants.
   ```scheme
   (define-c-enum State
     :state-pending
@@ -311,8 +355,11 @@ This module provides low-level C memory allocations, type builders, and pointer 
   (c-import c-cos libc "cos" double (double))
   ```
 
-### D. Scoped Sandbox Allocators
-Macros that guarantee automatic memory cleanup when control leaves the execution scope:
+---
+
+### Scoped Sandbox Allocators (`with-heap-alloc`, `with-alloc`, etc.)
+
+Lext features scoped block allocation macros. These guarantee that memory is cleaned up automatically upon block exit (even on errors).
 
 * **`with-heap-alloc`** (macro)  
   Allocates heap memory for a struct or type descriptor.
@@ -320,23 +367,69 @@ Macros that guarantee automatic memory cleanup when control leaves the execution
   ```scheme
   (with-heap-alloc (p Point)
     (c.= p.x 10)
-    (display (c.@ p.x)))
+    (c.= p.y 20)
+    (format #t "Point: ~A, ~A\n" (c.@ p.x) (c.@ p.y)))
+  ```
+
+* **`with-alloc`** (macro)  
+  An alias for `with-heap-alloc`.
+  ```scheme
+  (with-alloc (p Point)
+    (c.= p.x 50))
   ```
 
 * **`with-c-string`** (macro)  
-  Allocates a temporary null-terminated C string (`char*`).
+  Allocates a temporary null-terminated C string (`char*`) containing the Scheme string, and automatically registers it in the bounds table.
   - *Syntax*: `(with-c-string (var "my string") body ...)`
+  ```scheme
+  (with-c-string (s "Hello FFI")
+    (c-puts s))
+  ```
 
 * **`with-c-array`** (macro)  
-  Allocates a temporary primitive array from a Scheme list.
-  - *Syntax*: `(with-c-array (var int '(1 2 3)) body ...)`
+  Allocates a temporary primitive array from a Scheme list, registered in the bounds checking table.
+  - *Syntax*: `(with-c-array (var type '(value1 value2 ...)) body ...)`
+  ```scheme
+  (with-c-array (arr int '(10 20 30))
+    (format #t "Index 1: ~A\n" (c.@ arr.1)))
+  ```
 
 * **`with-c-string-array`** (macro)  
   Allocates a temporary null-terminated pointer array (`char**`).
-  - *Syntax*: `(with-c-string-array (var '("a" "b" "c")) body ...)`
+  - *Syntax*: `(with-c-string-array (var '("string1" "string2")) body ...)`
+  ```scheme
+  (with-c-string-array (args '("echo" "hello"))
+     (some-exec-fn args))
+  ```
+
+---
+
+### String & Array Marshalling Helpers
+
+* **`(c-string-from-ptr ptr)`**  
+  Decodes a null-terminated C string (`char*`) into a Scheme string.
+  ```scheme
+  (define path-str (c-string-from-ptr path-ptr))
+  ```
+
+* **`(c-string-array->list ptr)`**  
+  Decodes a null-terminated pointer array (`char**`) into a Scheme list of strings.
+  ```scheme
+  (define args-list (c-string-array->list argv-ptr))
+  ```
+
+---
+
+### Output Capture Macro (`capture`)
 
 * **`capture`** (macro)  
-  Runs the body and captures standard output as a string.
+  Runs the body and captures anything it outputs to stdout, returning it as a string.
+  ```scheme
+  (define output (capture
+                   (display "Hello ")
+                   (display "World!")))
+  (display output) ;; Prints: "Hello World!"
+  ```
 
 ---
 
@@ -384,6 +477,7 @@ The major mode **`lext-mode`** (located in `lext-mode.el`) provides a complete d
 3. **Indentation Rules**: Custom Lisp indentation rules for Lext macros:
    ```elisp
    (put 'with-heap-alloc 'lext-indent-function 1)
+   (put 'with-alloc 'lext-indent-function 1)
    (put 'use-namespace 'lext-indent-function 1)
    ```
 4. **Auto-Association**: Configured to load automatically whenever a file ending in `.lext` is opened.

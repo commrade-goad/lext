@@ -69,6 +69,40 @@ static s7_pointer builtin_bounds_check(s7_scheme *sc, s7_pointer args) {
     return (req_sz <= reg_sz) ? s7_t(sc) : s7_f(sc);
 }
 
+static s7_pointer builtin_register_bounds(s7_scheme *sc, s7_pointer args) {
+    s7_pointer ptr_arg = s7_car(args);
+    s7_pointer sz_arg  = s7_cadr(args);
+    if (!s7_is_c_pointer(ptr_arg))
+        return s7_wrong_type_arg_error(sc, "lext-register-bounds", 1, ptr_arg, "c-pointer");
+    if (!s7_is_integer(sz_arg))
+        return s7_wrong_type_arg_error(sc, "lext-register-bounds", 2, sz_arg, "integer");
+    void *p = s7_c_pointer(ptr_arg);
+    size_t sz = (size_t)s7_integer(sz_arg);
+    if (ptr_bounds_table && p) {
+        char addr_buf[32];
+        snprintf(addr_buf, sizeof(addr_buf), "%p", p);
+        MeowHash key = meow_hash_string(addr_buf);
+        meow_hash_table_set(ptr_bounds_table, key, (void *)(uintptr_t)sz);
+    }
+    return s7_unspecified(sc);
+}
+
+static s7_pointer builtin_unregister_bounds(s7_scheme *sc, s7_pointer args) {
+    s7_pointer ptr_arg = s7_car(args);
+    void *p = NULL;
+    if (s7_is_c_pointer(ptr_arg)) p = s7_c_pointer(ptr_arg);
+    else if (s7_is_null(sc, ptr_arg)) return s7_unspecified(sc);
+    else return s7_wrong_type_arg_error(sc, "lext-unregister-bounds", 1, ptr_arg, "c-pointer");
+    if (ptr_bounds_table && p) {
+        char addr_buf[32];
+        snprintf(addr_buf, sizeof(addr_buf), "%p", p);
+        MeowHash key = meow_hash_string(addr_buf);
+        meow_hash_table_set(ptr_bounds_table, key, NULL);
+    }
+    return s7_unspecified(sc);
+}
+
+
 /* ------------------------------------------------------------------ */
 /* Dynamic library helpers                                              */
 /* ------------------------------------------------------------------ */
@@ -608,4 +642,8 @@ void lext_ffi_register(s7_scheme *sc) {
                        "(lext-free-tracked ptr) free with bounds deregistration");
     s7_define_function(sc, "lext-bounds-check", builtin_bounds_check, 2, 0, false,
                        "(lext-bounds-check ptr size) returns #t if allocation covers size bytes");
+    s7_define_function(sc, "lext-register-bounds", builtin_register_bounds, 2, 0, false,
+                       "(lext-register-bounds ptr size) registers bounds for dynamic pointer");
+    s7_define_function(sc, "lext-unregister-bounds", builtin_unregister_bounds, 1, 0, false,
+                       "(lext-unregister-bounds ptr) removes bounds entry for pointer");
 }

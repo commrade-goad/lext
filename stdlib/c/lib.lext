@@ -105,12 +105,45 @@
 ;; --- Low-Level Memory Helper Functions (from libc) ---
 (c-import internal-c-memcpy-raw internal-c-libc "memcpy" pointer (pointer pointer ulong))
 (c-import internal-c-memset-raw internal-c-libc "memset" pointer (pointer int ulong))
-(c-import c.malloc              internal-c-libc "malloc" pointer (ulong))
-(c-import c.free                internal-c-libc "free"   void    (pointer))
-(c-import c.realloc             internal-c-libc "realloc" pointer (pointer ulong))
+(c-import internal-c-malloc         internal-c-libc "malloc" pointer (ulong))
+(c-import internal-c-free           internal-c-libc "free"   void    (pointer))
+(c-import internal-c-realloc        internal-c-libc "realloc" pointer (pointer ulong))
+
+(define (c.malloc size)
+  (let ((ptr (internal-c-malloc size)))
+    (unless (null? ptr)
+      (lext-register-bounds ptr size))
+    ptr))
+
+(define (c.free ptr)
+  (let ((raw-ptr (if (internal-c-tptr? ptr) (internal-c-tptr-ptr ptr) ptr)))
+    (unless (null? raw-ptr)
+      (lext-unregister-bounds raw-ptr)
+      (internal-c-free raw-ptr))))
+
+(define (c.realloc ptr size)
+  (let* ((raw-ptr (if (internal-c-tptr? ptr) (internal-c-tptr-ptr ptr) ptr))
+         (new-ptr (internal-c-realloc raw-ptr size)))
+    (unless (null? raw-ptr)
+      (lext-unregister-bounds raw-ptr))
+    (unless (null? new-ptr)
+      (lext-register-bounds new-ptr size))
+    new-ptr))
 
 (define (c.calloc nmemb size)
-  (lext-calloc nmemb size))
+  (let* ((total-size (* nmemb size))
+         (ptr (lext-calloc nmemb size)))
+    (unless (null? ptr)
+      (lext-register-bounds ptr total-size))
+    ptr))
+
+(define (internal-c-string->c-string str)
+  (let* ((ptr (lext-string->c-string str))
+         (len (+ (string-length str) 1)))
+    (unless (null? ptr)
+      (lext-register-bounds ptr len))
+    ptr))
+
 
 (define (internal-c-memcpy dest src byte-count)
   (internal-c-memcpy-raw (if (internal-c-tptr? dest) (internal-c-tptr-ptr dest) dest)
@@ -298,7 +331,7 @@
   (let ((var (car var-str))
         (str-expr (cadr var-str))
         (ptr (gensym)))
-    `(let* ((,ptr (lext-string->c-string ,str-expr)))
+    `(let* ((,ptr (internal-c-string->c-string ,str-expr)))
        (dynamic-wind
          (lambda () #f)
          (lambda ()
