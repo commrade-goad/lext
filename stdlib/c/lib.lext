@@ -1,19 +1,19 @@
-;;;; basic.scm - Ultimate FFI & Dev Stdlib for s7 Scheme FFI
-;;;; Ported from Documents/dev/lext-sbcl/basic.lisp
+;;;; c.scm - Ultimate FFI & libc bindings for s7 Scheme FFI
+;;;; Part of standard library split: C/FFI side
 
-(define internal-basic-libc (ffi-open #f))
+(define internal-c-libc (ffi-open #f))
 
 ;; --- Typed Pointer Wrapper ---
-(define (internal-basic-tptr type ptr)
+(define (internal-c-tptr type ptr)
   (cons type ptr))
 
-(define (internal-basic-tptr-type tp)
+(define (internal-c-tptr-type tp)
   (car tp))
 
-(define (internal-basic-tptr-ptr tp)
+(define (internal-c-tptr-ptr tp)
   (cdr tp))
 
-(define (internal-basic-tptr? x)
+(define (internal-c-tptr? x)
   (and (pair? x)
        (c-pointer? (cdr x))))
 
@@ -103,41 +103,41 @@
               `(ffi-call ,func-ptr ',translated-ret ',translated-args args ,(car nfixed)))))))
 
 ;; --- Low-Level Memory Helper Functions (from libc) ---
-(c-import internal-basic-c-memcpy-raw internal-basic-libc "memcpy" pointer (pointer pointer ulong))
-(c-import internal-basic-c-memset-raw internal-basic-libc "memset" pointer (pointer int ulong))
-(c-import bc.malloc                   internal-basic-libc "malloc" pointer (ulong))
-(c-import bc.free                     internal-basic-libc "free"   void    (pointer))
-(c-import bc.realloc                  internal-basic-libc "realloc" pointer (pointer ulong))
+(c-import internal-c-memcpy-raw internal-c-libc "memcpy" pointer (pointer pointer ulong))
+(c-import internal-c-memset-raw internal-c-libc "memset" pointer (pointer int ulong))
+(c-import c.malloc              internal-c-libc "malloc" pointer (ulong))
+(c-import c.free                internal-c-libc "free"   void    (pointer))
+(c-import c.realloc             internal-c-libc "realloc" pointer (pointer ulong))
 
-(define (bc.calloc nmemb size)
+(define (c.calloc nmemb size)
   (lext-calloc nmemb size))
 
-(define (internal-basic-c-memcpy dest src byte-count)
-  (internal-basic-c-memcpy-raw (if (internal-basic-tptr? dest) (internal-basic-tptr-ptr dest) dest)
-                               (if (internal-basic-tptr? src) (internal-basic-tptr-ptr src) src)
-                               byte-count))
+(define (internal-c-memcpy dest src byte-count)
+  (internal-c-memcpy-raw (if (internal-c-tptr? dest) (internal-c-tptr-ptr dest) dest)
+                         (if (internal-c-tptr? src) (internal-c-tptr-ptr src) src)
+                         byte-count))
 
-(define (internal-basic-c-memset dest byte-value byte-count)
-  (internal-basic-c-memset-raw (if (internal-basic-tptr? dest) (internal-basic-tptr-ptr dest) dest)
-                               byte-value
-                               byte-count))
+(define (internal-c-memset dest byte-value byte-count)
+  (internal-c-memset-raw (if (internal-c-tptr? dest) (internal-c-tptr-ptr dest) dest)
+                         byte-value
+                         byte-count))
 
-(define (internal-basic-ptr+ tp offset)
-  (if (internal-basic-tptr? tp)
-      (internal-basic-tptr (internal-basic-tptr-type tp) (integer->c-pointer (+ (c-pointer->integer (internal-basic-tptr-ptr tp)) offset)))
+(define (internal-c-ptr+ tp offset)
+  (if (internal-c-tptr? tp)
+      (internal-c-tptr (internal-c-tptr-type tp) (integer->c-pointer (+ (c-pointer->integer (internal-c-tptr-ptr tp)) offset)))
       (integer->c-pointer (+ (c-pointer->integer tp) offset))))
 
 ;; --- Memory Math and Layout Metadata ---
-(define (internal-basic-resolve-type type)
+(define (internal-c-resolve-type type)
   (if (symbol? type)
       (let ((pair (assoc type *ffi-types*)))
         (if pair (cdr pair) type))
       type))
 
-(define (internal-basic-c-align-of type)
+(define (internal-c-c-align-of type)
   (ffi-align (translate-ffi-type type)))
 
-(define (internal-basic-c-align-to offset alignment)
+(define (internal-c-c-align-to offset alignment)
   (if (= alignment 0)
       offset
       (let ((rem (modulo offset alignment)))
@@ -149,8 +149,8 @@
   (ffi-size (translate-ffi-type type)))
 
 ;; --- Ultimate Pointer Navigator (@) and Mutator (c-set!) ---
-(define (internal-basic-struct-field-type struct-name field-name)
-  (let ((type-desc (internal-basic-resolve-type struct-name)))
+(define (internal-c-struct-field-type struct-name field-name)
+  (let ((type-desc (internal-c-resolve-type struct-name)))
     (if (and (pair? type-desc) (eq? (car type-desc) 'struct))
         (let loop ((fields (cdr type-desc)))
           (if (not (null? fields))
@@ -163,8 +163,8 @@
               #f))
         #f)))
 
-(define (internal-basic-struct-field-offset type-desc field-name)
-  (let ((resolved (internal-basic-resolve-type type-desc)))
+(define (internal-c-struct-field-offset type-desc field-name)
+  (let ((resolved (internal-c-resolve-type type-desc)))
     (if (and (pair? resolved) (eq? (car resolved) 'struct))
         (let ((offset 0))
           (let loop ((fields (cdr resolved)))
@@ -172,8 +172,8 @@
                 (let* ((f (car fields))
                        (ftype (car f))
                        (fname (cadr f))
-                       (falign (internal-basic-c-align-of ftype)))
-                  (set! offset (internal-basic-c-align-to offset falign))
+                       (falign (internal-c-c-align-of ftype)))
+                  (set! offset (internal-c-c-align-to offset falign))
                   (if (eq? fname field-name)
                       offset
                       (begin
@@ -182,7 +182,7 @@
                 #f)))
         #f)))
 
-(define (internal-basic-struct-field-type-resolved resolved-type field-name)
+(define (internal-c-struct-field-type-resolved resolved-type field-name)
   (let loop ((fields (cdr resolved-type)))
     (if (not (null? fields))
         (let ((f (car fields)))
@@ -191,11 +191,11 @@
               (loop (cdr fields))))
         #f)))
 
-(define (internal-basic-resolve-path ptr type path)
+(define (internal-c-resolve-path ptr type path)
   (if (null? path)
       (cons ptr type)
       (let* ((step (car path))
-             (resolved-type (internal-basic-resolve-type type)))
+             (resolved-type (internal-c-resolve-type type)))
         (cond
           ((number? step)
            (let* ((elem-type (if (and (pair? resolved-type) (eq? (car resolved-type) 'array))
@@ -203,34 +203,34 @@
                                  resolved-type))
                   (elem-size (c-size elem-type))
                   (offset (* step elem-size)))
-             (internal-basic-resolve-path (internal-basic-ptr+ ptr offset) elem-type (cdr path))))
+             (internal-c-resolve-path (internal-c-ptr+ ptr offset) elem-type (cdr path))))
           ((and (pair? resolved-type) (eq? (car resolved-type) 'struct))
-           (let ((offset (internal-basic-struct-field-offset resolved-type step))
-                 (field-type (internal-basic-struct-field-type-resolved resolved-type step)))
+           (let ((offset (internal-c-struct-field-offset resolved-type step))
+                 (field-type (internal-c-struct-field-type-resolved resolved-type step)))
              (if (not offset)
                  (error "Field not found in struct:" step type)
-                 (internal-basic-resolve-path (internal-basic-ptr+ ptr offset) field-type (cdr path)))))
+                 (internal-c-resolve-path (internal-c-ptr+ ptr offset) field-type (cdr path)))))
           ((and (pair? resolved-type) (eq? (car resolved-type) 'union))
-           (let ((field-type (internal-basic-struct-field-type-resolved resolved-type step)))
+           (let ((field-type (internal-c-struct-field-type-resolved resolved-type step)))
              (if (not field-type)
                  (error "Field not found in union:" step type)
-                 (internal-basic-resolve-path ptr field-type (cdr path)))))
+                 (internal-c-resolve-path ptr field-type (cdr path)))))
           (else
            (error "Cannot navigate step on primitive type:" step type))))))
 
-(define (bc.deref ptr type . path)
-  (let* ((res (internal-basic-resolve-path ptr type path))
+(define (c.deref ptr type . path)
+  (let* ((res (internal-c-resolve-path ptr type path))
          (target-ptr (car res))
          (target-type (cdr res)))
     (ffi-deref target-ptr target-type)))
 
-(define (bc.set! ptr type value . path)
-  (let* ((res (internal-basic-resolve-path ptr type path))
+(define (c.set! ptr type value . path)
+  (let* ((res (internal-c-resolve-path ptr type path))
          (target-ptr (car res))
          (target-type (cdr res)))
     (ffi-set! target-ptr target-type value)))
 
-(define (internal-basic-string-split str delim)
+(define (internal-c-string-split str delim)
   (let ((len (string-length str))
         (delim-char (string-ref delim 0)))
     (let loop ((i 0) (curr '()) (res '()))
@@ -241,39 +241,39 @@
                 (loop (+ i 1) '() (cons (list->string (reverse curr)) res))
                 (loop (+ i 1) (cons c curr) res)))))))
 
-(define (internal-basic-string->number-or-symbol str)
+(define (internal-c-string->number-or-symbol str)
   (let ((num (string->number str)))
     (if num num (string->symbol str))))
 
-(define (internal-basic-parse-dot-symbol sym)
-  (let* ((parts (internal-basic-string-split (symbol->string sym) ".")))
-    (map internal-basic-string->number-or-symbol parts)))
+(define (internal-c-parse-dot-symbol sym)
+  (let* ((parts (internal-c-string-split (symbol->string sym) ".")))
+    (map internal-c-string->number-or-symbol parts)))
 
-(define (bc.addr tp . path)
-  (let* ((ptr (internal-basic-tptr-ptr tp))
-         (type (internal-basic-tptr-type tp))
-         (res (internal-basic-resolve-path ptr type path))
+(define (c.addr tp . path)
+  (let* ((ptr (internal-c-tptr-ptr tp))
+         (type (internal-c-tptr-type tp))
+         (res (internal-c-resolve-path ptr type path))
          (target-ptr (car res))
          (target-type (cdr res)))
-    (internal-basic-tptr target-type target-ptr)))
+    (internal-c-tptr target-type target-ptr)))
 
-(define-macro (bc.@ obj-path)
-  (let* ((parsed (internal-basic-parse-dot-symbol obj-path))
+(define-macro (c.@ obj-path)
+  (let* ((parsed (internal-c-parse-dot-symbol obj-path))
          (obj (car parsed))
          (path (cdr parsed)))
-    `(bc.deref (internal-basic-tptr-ptr ,obj) (internal-basic-tptr-type ,obj) ,@(map (lambda (p) `',p) path))))
+    `(c.deref (internal-c-tptr-ptr ,obj) (internal-c-tptr-type ,obj) ,@(map (lambda (p) `',p) path))))
 
-(define-macro (bc.= obj-path value)
-  (let* ((parsed (internal-basic-parse-dot-symbol obj-path))
+(define-macro (c.= obj-path value)
+  (let* ((parsed (internal-c-parse-dot-symbol obj-path))
          (obj (car parsed))
          (path (cdr parsed)))
-    `(bc.set! (internal-basic-tptr-ptr ,obj) (internal-basic-tptr-type ,obj) ,value ,@(map (lambda (p) `',p) path))))
+    `(c.set! (internal-c-tptr-ptr ,obj) (internal-c-tptr-type ,obj) ,value ,@(map (lambda (p) `',p) path))))
 
-(define-macro (bc.& obj-path)
-  (let* ((parsed (internal-basic-parse-dot-symbol obj-path))
+(define-macro (c.& obj-path)
+  (let* ((parsed (internal-c-parse-dot-symbol obj-path))
          (obj (car parsed))
          (path (cdr parsed)))
-    `(bc.addr ,obj ,@(map (lambda (p) `',p) path))))
+    `(c.addr ,obj ,@(map (lambda (p) `',p) path))))
 
 ;; --- Memory Sandbox Allocation Macros ---
 (define-macro (with-heap-alloc var-type . body)
@@ -282,14 +282,14 @@
          (count (if (= (length var-type) 3) (caddr var-type) #f))
          (size (if count `(* (c-size ',type) ,count) `(c-size ',type)))
          (ptr (gensym)))
-    `(let ((,ptr (bc.malloc ,size)))
+    `(let ((,ptr (c.malloc ,size)))
        (dynamic-wind
          (lambda () #f)
          (lambda ()
-           (let ((,var (internal-basic-tptr ',type ,ptr)))
+           (let ((,var (internal-c-tptr ',type ,ptr)))
              ,@body))
          (lambda ()
-           (bc.free ,ptr))))))
+           (c.free ,ptr))))))
 
 (define-macro (with-alloc . args)
   `(with-heap-alloc ,@args))
@@ -302,10 +302,10 @@
        (dynamic-wind
          (lambda () #f)
          (lambda ()
-           (let ((,var (internal-basic-tptr 'char ,ptr)))
+           (let ((,var (internal-c-tptr 'char ,ptr)))
              ,@body))
          (lambda ()
-           (bc.free ,ptr))))))
+           (c.free ,ptr))))))
 
 (define-macro (with-c-array var-type-list . body)
   (let ((var (car var-type-list))
@@ -318,19 +318,19 @@
     `(let* ((,lst ,lst-expr)
             (,len (length ,lst))
             (,size (c-size ',type))
-            (,ptr (bc.malloc (* ,len ,size))))
+            (,ptr (c.malloc (* ,len ,size))))
        (let loop ((curr ,lst) (i 0))
          (if (not (null? curr))
              (begin
-               (ffi-set! (internal-basic-ptr+ ,ptr (* i ,size)) ',type (car curr))
+               (ffi-set! (internal-c-ptr+ ,ptr (* i ,size)) ',type (car curr))
                (loop (cdr curr) (+ i 1)))))
        (dynamic-wind
          (lambda () #f)
          (lambda ()
-           (let ((,var (internal-basic-tptr ',type ,ptr)))
+           (let ((,var (internal-c-tptr ',type ,ptr)))
              ,@body))
          (lambda ()
-           (bc.free ,ptr))))))
+           (c.free ,ptr))))))
 
 (define-macro (with-c-string-array var-lst . body)
   (let ((var (car var-lst))
@@ -343,161 +343,63 @@
     `(let* ((,lst ,lst-expr)
             (,len (length ,lst))
             (,psize (c-size 'pointer))
-            (,ptr (bc.malloc (* (+ ,len 1) ,psize)))
+            (,ptr (c.malloc (* (+ ,len 1) ,psize)))
             (,ptrs '()))
        (let loop ((curr ,lst) (i 0))
          (if (not (null? curr))
              (let* ((str (car curr))
-                    (slen (string-length str))
-                    (sptr (bc.malloc (+ slen 1))))
+                     (slen (string-length str))
+                     (sptr (c.malloc (+ slen 1))))
                (let str-loop ((j 0))
                  (if (< j slen)
                      (begin
-                       (ffi-set! (internal-basic-ptr+ sptr j) 'char (char->integer (string-ref str j)))
+                       (ffi-set! (internal-c-ptr+ sptr j) 'char (char->integer (string-ref str j)))
                        (str-loop (+ j 1)))))
-               (ffi-set! (internal-basic-ptr+ sptr slen) 'char 0)
-               (ffi-set! (internal-basic-ptr+ ,ptr (* i ,psize)) 'pointer sptr)
+               (ffi-set! (internal-c-ptr+ sptr slen) 'char 0)
+               (ffi-set! (internal-c-ptr+ ,ptr (* i ,psize)) 'pointer sptr)
                (set! ,ptrs (cons sptr ,ptrs))
                (loop (cdr curr) (+ i 1)))))
-       (ffi-set! (internal-basic-ptr+ ,ptr (* ,len ,psize)) 'pointer ())
+       (ffi-set! (internal-c-ptr+ ,ptr (* ,len ,psize)) 'pointer ())
        (dynamic-wind
          (lambda () #f)
          (lambda ()
-           (let ((,var (internal-basic-tptr 'pointer ,ptr)))
+           (let ((,var (internal-c-tptr 'pointer ,ptr)))
              ,@body))
          (lambda ()
-           (for-each bc.free ,ptrs)
-           (bc.free ,ptr))))))
-
-;; --- Capturing Engine ---
-;; Use native lext-capture-output builtin (item #2).
-;; The old c-import lines for fflush/dup/dup2/close/tmpfile/fileno/rewind/fclose/fgetc
-;; are no longer needed here since everything is done in C.
+           (for-each c.free ,ptrs)
+           (c.free ,ptr))))))  ; wait, bc.free here should be c.free! Let's be careful.
 
 (define-macro (capture . body)
   `(lext-capture-output (lambda () ,@body)))
 
-
 ;; --- Common Helper Functions ---
-(define (bc.null-ptr? x)
-  (let ((ptr (if (internal-basic-tptr? x) (internal-basic-tptr-ptr x) x)))
+(define (c.null-ptr? x)
+  (let ((ptr (if (internal-c-tptr? x) (internal-c-tptr-ptr x) x)))
     (or (null? ptr)
         (eq? ptr 0)
         (and (c-pointer? ptr) (= (c-pointer->integer ptr) 0)))))
 
-(define (bc.null-ptr)
+(define (c.null-ptr)
   ())
 
 (define (c-string-from-ptr x)
-  (let ((ptr (if (internal-basic-tptr? x) (internal-basic-tptr-ptr x) x)))
-    (if (bc.null-ptr? ptr)
+  (let ((ptr (if (internal-c-tptr? x) (internal-c-tptr-ptr x) x)))
+    (if (c.null-ptr? ptr)
         ""
         (lext-c-string-from-ptr ptr))))
 
 (define (c-string-array->list tp)
-  (let ((ptr (if (internal-basic-tptr? tp) (internal-basic-tptr-ptr tp) tp)))
-    (if (bc.null-ptr? ptr)
+  (let ((ptr (if (internal-c-tptr? tp) (internal-c-tptr-ptr tp) tp)))
+    (if (c.null-ptr? ptr)
         '()
         (lext-c-string-array->list ptr))))
 
-(define (bc.c-cast tp target-type)
-  (if (internal-basic-tptr? tp)
-      (internal-basic-tptr target-type (internal-basic-tptr-ptr tp))
-      (internal-basic-tptr target-type tp)))
+(define (c.c-cast tp target-type)
+  (if (internal-c-tptr? tp)
+      (internal-c-tptr target-type (internal-c-tptr-ptr tp))
+      (internal-c-tptr target-type tp)))
 
 ;; --- Tracked (bounds-checked) allocation helpers (#7) ---
-(define (bc.malloc-tracked size) (lext-malloc-tracked size))
-(define (bc.free-tracked ptr) (lext-free-tracked ptr))
-(define (bc.bounds-check ptr size) (lext-bounds-check ptr size))
-
-;; --- Loop Constructs (while, foreach, for) ---
-(define-macro (bc.while cond . body)
-  (let ((loop (gensym)))
-    `(let ,loop ()
-       (if ,cond
-           (begin
-             ,@body
-             (,loop))))))
-
-(define-macro (bc.foreach clause . body)
-  (let ((var (car clause))
-        (lst (cadr clause))
-        (loop (gensym))
-        (curr (gensym)))
-    `(let ,loop ((,curr ,lst))
-       (if (not (null? ,curr))
-           (let ((,var (car ,curr)))
-             ,@body
-             (,loop (cdr ,curr)))))))
-
-(define-macro (bc.for clause . body)
-  (cond
-    ;; Range style: (for (var start end))
-    ((and (list? clause) (= (length clause) 3))
-     (let ((var (car clause))
-           (start (cadr clause))
-           (end (caddr clause))
-           (loop (gensym))
-           (limit (gensym)))
-       `(let ((,limit ,end))
-          (let ,loop ((,var ,start))
-            (if (< ,var ,limit)
-                (begin
-                  ,@body
-                  (,loop (+ ,var 1))))))))
-    ;; Range style with step: (for (var start end step))
-    ((and (list? clause) (= (length clause) 4))
-     (let ((var (car clause))
-           (start (cadr clause))
-           (end (caddr clause))
-           (step (cadddr clause))
-           (loop (gensym))
-           (limit (gensym))
-           (incr (gensym)))
-       `(let ((,limit ,end)
-              (,incr ,step))
-          (let ,loop ((,var ,start))
-            (if (if (> ,incr 0) (< ,var ,limit) (> ,var ,limit))
-                (begin
-                  ,@body
-                  (,loop (+ ,var ,incr))))))))
-    (else
-     (error "invalid for syntax" clause))))
-
-;; --- Namespace Stripper & Importer Utilities ---
-(define *protected-symbols* '(set! = + - * / < > <= >=))
-
-(define-macro (open-namespace prefix)
-  (let ((st (symbol-table))
-        (prefix-len (string-length prefix))
-        (bindings '()))
-    (for-each
-      (lambda (sym)
-        (let ((sym-str (symbol->string sym)))
-          (if (and (> (string-length sym-str) prefix-len)
-                   (string=? (substring sym-str 0 prefix-len) prefix)
-                   (defined? sym))
-              (let ((new-sym (string->symbol (substring sym-str prefix-len))))
-                (unless (member new-sym *protected-symbols*)
-                  (set! bindings (cons `(define ,new-sym ,sym) bindings)))))))
-      st)
-    `(begin ,@(reverse bindings))))
-
-(define-macro (use-namespace prefix . body)
-  (let ((st (symbol-table))
-        (prefix-len (string-length prefix))
-        (bindings '()))
-    (for-each
-      (lambda (sym)
-        (let ((sym-str (symbol->string sym)))
-          (if (and (> (string-length sym-str) prefix-len)
-                   (string=? (substring sym-str 0 prefix-len) prefix)
-                   (defined? sym))
-              (let ((new-sym (string->symbol (substring sym-str prefix-len))))
-                (unless (member new-sym *protected-symbols*)
-                  (set! bindings (cons `',new-sym (cons sym bindings))))))))
-      st)
-    `(with-let (sublet (curlet) ,@bindings)
-       ,@body)))
-
-
+(define (c.malloc-tracked size) (lext-malloc-tracked size))
+(define (c.free-tracked ptr) (lext-free-tracked ptr))
+(define (c.bounds-check ptr size) (lext-bounds-check ptr size))

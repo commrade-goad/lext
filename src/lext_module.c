@@ -60,7 +60,7 @@ static s7_pointer builtin_use_lib(s7_scheme *sc, s7_pointer args) {
         for (size_t i = 0; i < paths.sz; i++) {
             HStrView current = paths.dt[i];
             hstr_clear(&path);
-            hstr_printf(&path, "%.*s/%s/lib.scm",
+            hstr_printf(&path, "%.*s/%s/lib.lext",
                         (int)current.sz, (const char *)current.dt, lib_str);
 #if _WIN32
             int exist = GetFileAttributesA((const char *)path.dt) != INVALID_FILE_ATTRIBUTES;
@@ -100,5 +100,5 @@ static s7_pointer builtin_use_lib(s7_scheme *sc, s7_pointer args) {
 
 void lext_module_register(s7_scheme *sc) {
     s7_define_function(sc, "use", builtin_use_lib, 1, 0, true,
-                       "(use lib...) loads lib.scm from LEXT_HOME");
+                       "(use lib...) loads lib.lext from LEXT_HOME");
 }

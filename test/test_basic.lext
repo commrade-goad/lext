@@ -1,4 +1,4 @@
-(use "stdlib/libnob" "stdlib/basic")
+(use "stdlib/libnob" "stdlib/basic" "stdlib/c")
 
 (display "=== 1. Testing Type Translation & Declarations ===\n")
 (display (format #f "Translated (* t): ~A\n" (translate-ffi-type '(* t))))
@@ -18,23 +18,23 @@
 
 (display "\n=== 2. Testing Memory Sandbox Allocation & @ / c-set! ===\n")
 (with-heap-alloc (obj My_Outer)
-  (bc.= obj.inner.val 42)
-  (bc.= obj.inner.flag 120)
-  (display (format #f "Read obj.inner.val: ~A\n" (bc.@ obj.inner.val)))
-  (display (format #f "Read obj.inner.flag: ~A\n" (integer->char (bc.@ obj.inner.flag)))))
+  (c.= obj.inner.val 42)
+  (c.= obj.inner.flag 120)
+  (display (format #f "Read obj.inner.val: ~A\n" (c.@ obj.inner.val)))
+  (display (format #f "Read obj.inner.flag: ~A\n" (integer->char (c.@ obj.inner.flag)))))
 
 (display "\n=== 3. Testing with-c-string, with-c-array, with-c-string-array ===\n")
 (with-c-string (s "Hello from s7 Basic!")
   (display (format #f "C string read: ~S\n" (c-string-from-ptr s))))
 
 (with-c-array (arr int '(10 20 30 40))
-  (display (format #f "Array [0]: ~A\n" (bc.@ arr.0)))
-  (display (format #f "Array [2]: ~A\n" (bc.@ arr.2))))
+  (display (format #f "Array [0]: ~A\n" (c.@ arr.0)))
+  (display (format #f "Array [2]: ~A\n" (c.@ arr.2))))
 
 (with-c-string-array (args '("arg1" "arg2" "arg3"))
-  (display (format #f "String array [0]: ~A\n" (c-string-from-ptr (bc.@ args.0))))
-  (display (format #f "String array [1]: ~A\n" (c-string-from-ptr (bc.@ args.1))))
-  (display (format #f "String array [2]: ~A\n" (c-string-from-ptr (bc.@ args.2))))
+  (display (format #f "String array [0]: ~A\n" (c-string-from-ptr (c.@ args.0))))
+  (display (format #f "String array [1]: ~A\n" (c-string-from-ptr (c.@ args.1))))
+  (display (format #f "String array [2]: ~A\n" (c-string-from-ptr (c.@ args.2))))
   (display (format #f "String array as list: ~S\n" (c-string-array->list args))))
 
 (display "\n=== 4. Testing capture macro ===\n")
@@ -58,15 +58,18 @@
 
 (display "\n=== 7. Testing open-namespace and use-namespace ===\n")
 
-;; Test open-namespace globally
-(open-namespace "bc.")
-(display (format #f "After open-namespace, malloc is defined: ~A\n" (defined? 'malloc)))
-(display (format #f "After open-namespace, free is defined: ~A\n" (defined? 'free)))
+;; Test open-namespace globally for basic loops
+(open-namespace "bc")
+;; Test open-namespace globally for FFI/libc
+(open-namespace "c")
+
+(display (format #f "After open-namespace c., malloc is defined: ~A\n" (defined? 'malloc)))
+(display (format #f "After open-namespace c., free is defined: ~A\n" (defined? 'free)))
 ;; Verify standard protected operator is not overwritten
 (display (format #f "After open-namespace, standard = is still original: ~A\n" (eq? = (symbol->value '= (rootlet)))))
 
 ;; Test use-namespace locally (scoped)
-(use-namespace "nob."
+(use-namespace "nob"
   (display (format #f "Inside use-namespace, log is defined: ~A\n" (defined? 'log)))
   (display (format #f "Inside use-namespace, cmd-new is defined: ~A\n" (defined? 'cmd-new))))
 
@@ -92,5 +95,3 @@
 (display "Testing foreach:\n")
 (foreach (x '(apple orange banana))
   (display (format #f "  foreach: ~A\n" x)))
-
-

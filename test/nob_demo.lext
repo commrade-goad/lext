@@ -1,21 +1,21 @@
-;;;; nob_demo.scm - Comprehensive Demonstration of basic.scm and libnob.scm
-(use "stdlib/libnob" "stdlib/basic")
+;;;; nob_demo.lext - Comprehensive Demonstration of basic.lext, c.lext, and libnob.lext
+(use "stdlib/libnob" "stdlib/basic" "stdlib/c")
 
 (display "=========================================================\n")
-(display "         lext FFI & basic.scm Dev Kit Showcase\n")
+(display "         lext FFI & stdlib/c Dev Kit Showcase\n")
 (display "=========================================================\n\n")
 
 ;; 1. Compile C Shared Library using libnob's cmd runner
 (display "--- 1. Compiling test_lib.c to libtest.so ---\n")
-(let ((cmd-args '("gcc" "-shared" "-fPIC" "test_lib.c" "-o" "libtest.so")))
+(let ((cmd-args '("gcc" "-shared" "-fPIC" "test/test_lib.c" "-o" "libtest.so")))
   (if (nob.cmd-run cmd-args)
       (display "Compilation successful: libtest.so created.\n")
-      (error "Failed to compile test_lib.c")))
+      (error "Failed to compile test/test_lib.c")))
 
 ;; 2. Open and load the dynamic library
 (define libtest (ffi-open "./libtest.so"))
 
-;; 3. Define FFI layouts using basic.scm declarators
+;; 3. Define FFI layouts using basic.lext / c.lext declarators
 (display "\n--- 2. Defining C Struct and Union Layouts ---\n")
 (define-c-struct Point
   (x int)
@@ -37,17 +37,17 @@
 (with-alloc (p1 Point)
   (with-alloc (p2 Point)
     ;; Initialize p1 = (10, 20)
-    (bc.= p1.x 10)
-    (bc.= p1.y 20)
+    (c.= p1.x 10)
+    (c.= p1.y 20)
     ;; Initialize p2 = (30, 40)
-    (bc.= p2.x 30)
-    (bc.= p2.y 40)
+    (c.= p2.x 30)
+    (c.= p2.y 40)
     
-    (display (format #f "p1 = (~A, ~A)\n" (bc.@ p1.x) (bc.@ p1.y)))
-    (display (format #f "p2 = (~A, ~A)\n" (bc.@ p2.x) (bc.@ p2.y)))
+    (display (format #f "p1 = (~A, ~A)\n" (c.@ p1.x) (c.@ p1.y)))
+    (display (format #f "p2 = (~A, ~A)\n" (c.@ p2.x) (c.@ p2.y)))
     
     ;; Invoke C function (passing structs by value, returning struct by value)
-    (let ((result (add-points (bc.@ p1) (bc.@ p2))))
+    (let ((result (add-points (c.@ p1) (c.@ p2))))
       (display (format #f "add_points result = (~A, ~A)\n" 
                        (cdr (assoc 'x result)) 
                        (cdr (assoc 'y result)))))))
@@ -56,27 +56,27 @@
 (display "\n--- 4. Capturing C Printf Outputs using capture ---\n")
 (with-alloc (u IntOrDouble)
   ;; Test 1: Write double to union
-  (bc.= u.d 3.14159)
-  (display (format #f "Union field 'd read via @: ~A\n" (bc.@ u.d)))
+  (c.= u.d 3.14159)
+  (display (format #f "Union field 'd read via @: ~A\n" (c.@ u.d)))
   (let ((output (capture (print-union '(d 3.14159) 1))))
     (display (format #f "Double print output captured: ~S\n" output)))
 
   ;; Test 2: Write int to union
-  (bc.= u.i 1337)
-  (display (format #f "Union field 'i read via @: ~A\n" (bc.@ u.i)))
+  (c.= u.i 1337)
+  (display (format #f "Union field 'i read via @: ~A\n" (c.@ u.i)))
   (let ((output (capture (print-union '(i 1337) 0))))
     (display (format #f "Integer print output captured: ~S\n" output))))
 
-(define (ends-with-scm? path)
+(define (ends-with-lext? path)
   (let ((len (string-length path)))
-    (and (>= len 4) (string=? (substring path (- len 4)) ".scm"))))
+    (and (>= len 5) (string=? (substring path (- len 5)) ".lext"))))
 
 ;; 7. Directory walking
 (display "\n--- 5. Traversal using walk-dir ---\n")
-(display "Listing workspace Scheme files:\n")
+(display "Listing workspace Lext files:\n")
 (nob.walk-dir "."
               (lambda (path type level)
-                (if (and (eq? type 'regular) (ends-with-scm? path))
+                (if (and (eq? type 'regular) (ends-with-lext? path))
                     (display (format #f "  - ~A\n" path)))
                 #t))
 

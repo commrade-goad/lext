@@ -114,7 +114,7 @@ You can load a single module or multiple modules in a single variadic call:
 `lext` ships with a set of modular libraries under the `stdlib` directory.
 
 ### 1. `basic` Module (`stdlib/basic`)
-Loaded via `(use "basic")`. Typically, you would open its namespace globally using `(open-namespace "bc.")`.
+Contains core language extensions for pure Scheme. Loaded via `(use "basic")`. Typically, you open its namespace globally using `(open-namespace "bc")`.
 
 #### **Loop Constructs**
 The module provides convenient imperative loops:
@@ -140,7 +140,35 @@ The module provides convenient imperative loops:
     (display x))
   ```
 
-#### **Built-in Hash Table Support**
+---
+
+### 2. `c` Module (`stdlib/c`)
+Contains low-level C FFI wrappers, libc allocations, and type definitions. Loaded via `(use "c")`. Typically, you open its namespace globally using `(open-namespace "c")`.
+
+#### **Memory Allocations & Helpers**
+Provides direct bindings to C library memory routines, prefixed with `c.` (which become prefix-free when the namespace is opened):
+* `(c.malloc size)` - Allocates raw C memory.
+* `(c.free ptr)` - Frees allocated C memory.
+* `(c.realloc ptr size)` - Reallocates C memory.
+* `(c.calloc nmemb size)` - Allocates zero-initialized C memory.
+* `(c.deref ptr type)` - Reads C memory value at a pointer.
+* `(c.set! ptr type value)` - Writes value to C memory at a pointer.
+* `(c.null-ptr)` / `(c.null-ptr? ptr)` - Direct null pointer checks.
+* `(c.c-cast ptr type)` - Performs pointer type casting.
+
+#### **Pointer Navigation & Mutating Macros**
+These macros make traversing structured C memory structures incredibly concise:
+* **`c.@`**: Dereference field path (e.g. `(c.@ obj.inner.val)`)
+* **`c.=`**: Set/write field path value (e.g. `(c.= obj.inner.val 42)`)
+* **`c.&`**: Retrieve memory address/pointer to field (e.g. `(c.& obj.inner.val)`)
+
+#### **Globally Available FFI Declarators & Sandbox Allocators**
+* **Type Declarations**: `(define-c-struct name fields...)`, `(define-c-union name fields...)`, `(define-c-enum name variants...)`, `(translate-ffi-type type)`
+* **Sandbox Allocators**: `(with-heap-alloc (var type) body...)`, `(with-c-string (var str) body...)`, `(with-c-array (var type lst) body...)`, `(with-c-string-array (var lst) body...)`
+
+---
+
+### 3. Built-in Hash Table Support
 The underlying `s7` engine features native, high-performance hash tables. You do not need external libraries for hash map operations. Built-in procedures include:
 * `(make-hash-table [size])` - Creates a new hash table.
 * `(hash-table-set! table key value)` - Associates key with value in table.
@@ -461,3 +489,21 @@ Here is the helper macro:
 (c-puts "Hello from bound puts!")
 (c-printf "Formatted output: %s %d %f!\n" "Scheme" 42 3.14)
 ```
+
+---
+
+## Editor Support
+
+### Emacs
+`lext` includes an Emacs major mode, `lext-mode`, derived from `scheme-mode`. It adds syntax highlighting for Lext-specific constructs:
+* Core keywords (`use`, `c-import`, `define-c-struct`, etc.)
+* FFI primitives (`ffi-open`, `ffi-sym`, etc.)
+* Memory helpers and namespaces (`c.malloc`, `open-namespace`, etc.)
+* Task runner API (`nob.*`)
+
+To use it, load the `lext-mode.el` file in your `.emacs` or `init.el` configuration:
+```elisp
+(load-file "/path/to/lext/lext-mode.el")
+```
+It automatically associates `.lext` files with `lext-mode`.
+

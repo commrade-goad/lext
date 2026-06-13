@@ -1,0 +1,104 @@
+;;;; basic.scm - Ultimate Dev Stdlib for s7 Scheme FFI
+;;;; Part of standard library split: Basic/pure Scheme side
+
+;; --- Loop Constructs (while, foreach, for) ---
+(define-macro (bc.while cond . body)
+  (let ((loop (gensym)))
+    `(let ,loop ()
+       (if ,cond
+           (begin
+             ,@body
+             (,loop))))))
+
+(define-macro (bc.foreach clause . body)
+  (let ((var (car clause))
+        (lst (cadr clause))
+        (loop (gensym))
+        (curr (gensym)))
+    `(let ,loop ((,curr ,lst))
+       (if (not (null? ,curr))
+           (let ((,var (car ,curr)))
+             ,@body
+             (,loop (cdr ,curr)))))))
+
+(define-macro (bc.for clause . body)
+  (cond
+    ;; Range style: (for (var start end))
+    ((and (list? clause) (= (length clause) 3))
+     (let ((var (car clause))
+           (start (cadr clause))
+           (end (caddr clause))
+           (loop (gensym))
+           (limit (gensym)))
+       `(let ((,limit ,end))
+          (let ,loop ((,var ,start))
+            (if (< ,var ,limit)
+                (begin
+                  ,@body
+                  (,loop (+ ,var 1))))))))
+    ;; Range style with step: (for (var start end step))
+    ((and (list? clause) (= (length clause) 4))
+     (let ((var (car clause))
+           (start (cadr clause))
+           (end (caddr clause))
+           (step (cadddr clause))
+           (loop (gensym))
+           (limit (gensym))
+           (incr (gensym)))
+       `(let ((,limit ,end)
+              (,incr ,step))
+          (let ,loop ((,var ,start))
+            (if (if (> ,incr 0) (< ,var ,limit) (> ,var ,limit))
+                (begin
+                  ,@body
+                  (,loop (+ ,var ,incr))))))))
+    (else
+     (error "invalid for syntax" clause))))
+
+;; --- Namespace Stripper & Importer Utilities ---
+(define *protected-symbols* '(set! = + - * / < > <= >=))
+
+(define-macro (open-namespace prefix-arg)
+  (let* ((prefix-raw (if (symbol? prefix-arg) (symbol->string prefix-arg) prefix-arg))
+         (prefix (if (and (string? prefix-raw)
+                          (> (string-length prefix-raw) 0)
+                          (char=? (string-ref prefix-raw (- (string-length prefix-raw) 1)) #\.))
+                     prefix-raw
+                     (string-append prefix-raw ".")))
+         (st (symbol-table))
+         (prefix-len (string-length prefix))
+         (bindings '()))
+    (for-each
+      (lambda (sym)
+        (let ((sym-str (symbol->string sym)))
+          (if (and (> (string-length sym-str) prefix-len)
+                   (string=? (substring sym-str 0 prefix-len) prefix)
+                   (defined? sym))
+              (let ((new-sym (string->symbol (substring sym-str prefix-len))))
+                (unless (member new-sym *protected-symbols*)
+                  (set! bindings (cons `(define ,new-sym ,sym) bindings)))))))
+      st)
+    `(begin ,@(reverse bindings))))
+
+(define-macro (use-namespace prefix-arg . body)
+  (let* ((prefix-raw (if (symbol? prefix-arg) (symbol->string prefix-arg) prefix-arg))
+         (prefix (if (and (string? prefix-raw)
+                          (> (string-length prefix-raw) 0)
+                          (char=? (string-ref prefix-raw (- (string-length prefix-raw) 1)) #\.))
+                     prefix-raw
+                     (string-append prefix-raw ".")))
+         (st (symbol-table))
+         (prefix-len (string-length prefix))
+         (bindings '()))
+    (for-each
+      (lambda (sym)
+        (let ((sym-str (symbol->string sym)))
+          (if (and (> (string-length sym-str) prefix-len)
+                   (string=? (substring sym-str 0 prefix-len) prefix)
+                   (defined? sym))
+              (let ((new-sym (string->symbol (substring sym-str prefix-len))))
+                (unless (member new-sym *protected-symbols*)
+                  (set! bindings (cons `',new-sym (cons sym bindings))))))))
+      st)
+    `(with-let (sublet (curlet) ,@bindings)
+       ,@body)))

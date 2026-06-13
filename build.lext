@@ -1,5 +1,10 @@
 (use "stdlib/libnob")
 
+(define (any pred lst)
+  (cond ((null? lst) #f)
+        ((pred (car lst)) #t)
+        (else (any pred (cdr lst)))))
+
 (define build-dir "build")
 
 (define (read-file-string filename)
@@ -93,6 +98,7 @@
       (display "Cleaning workspace...\n")
       (for-each (lambda (f) (nob.delete-file (append-builddir f)))
                 '("main.o" "lext_types.o" "lext_io.o" "lext_ffi.o" "lext_module.o"
+                  "lext_capture.o" "lext_da.o" "lext_builtins.o"
                   "s7.o" "libnob.o" "lext"))
       (exit)))
 
@@ -135,14 +141,29 @@
                    (append lext-common-headers '("src/lext_module.h"))
                    '() git-hash ffi-cflags)
 
+(build-lext-module "lext_capture.o" "src/lext_capture.c"
+                   (append lext-common-headers '("src/lext_capture.h"))
+                   '() git-hash ffi-cflags)
+
+(build-lext-module "lext_da.o" "src/lext_da.c"
+                   (append lext-common-headers '("src/lext_da.h"))
+                   '() git-hash ffi-cflags)
+
+(build-lext-module "lext_builtins.o" "src/lext_builtins.c"
+                   (append lext-common-headers '("src/lext_builtins.h"))
+                   '() git-hash ffi-cflags)
+
 (build-lext-module "main.o" "src/main.c"
                    (append lext-common-headers
                            '("src/lext_types.h" "src/lext_io.h"
-                             "src/lext_ffi.h"   "src/lext_module.h"))
+                             "src/lext_ffi.h"   "src/lext_module.h"
+                             "src/lext_capture.h" "src/lext_da.h"
+                             "src/lext_builtins.h"))
                    '() git-hash ffi-cflags)
 
 ;; 3. Link lext
-(let ((lext-objs '("main.o" "lext_types.o" "lext_io.o" "lext_ffi.o" "lext_module.o" "s7.o" "libnob.o")))
+(let ((lext-objs '("main.o" "lext_types.o" "lext_io.o" "lext_ffi.o" "lext_module.o"
+                   "lext_capture.o" "lext_da.o" "lext_builtins.o" "s7.o" "libnob.o")))
   (if (any (lambda (obj) (nob.needs-rebuild? (append-builddir "lext") (append-builddir obj)))
            lext-objs)
       (begin

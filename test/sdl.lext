@@ -1,15 +1,10 @@
-(define sdl (ffi-open "libSDL2.so"))
+(use "stdlib/basic" "stdlib/c")
 
-(define-macro (c-import scheme-name lib-handle c-name ret-type arg-types . nfixed)
-  (let ((func-ptr (gensym)))
-    `(begin
-       ;; 1. Resolve the C function pointer once at compile/load time
-       (define ,func-ptr (ffi-sym ,lib-handle ,c-name))
-       ;; 2. Create the Scheme function wrapper
-       (define (,scheme-name . args)
-         ,(if (null? nfixed)
-              `(ffi-call ,func-ptr ',ret-type ',arg-types args)
-              `(ffi-call ,func-ptr ',ret-type ',arg-types args ,(car nfixed)))))))
+;; Open namespaces for standard loops and FFI memory/utilities
+(open-namespace "bc")
+(open-namespace "c")
+
+(define sdl (ffi-open "libSDL2.so"))
 
 ;; Constants
 (define SDL_RENDERER_ACCELERATED 2)
@@ -30,11 +25,6 @@
 (c-import sdl-quit                 sdl "SDL_Quit"               void    ())
 (c-import sdl-pollevent            sdl "SDL_PollEvent"          int     (pointer))
 (c-import sdl-get-ticks            sdl "SDL_GetTicks"           int     ())
-
-;; --- Libc Imports ---
-(define libc (ffi-open #f))
-(c-import malloc libc "malloc" pointer (int))
-(c-import free   libc "free"   void    (pointer))
 
 ;; --- Event Specific Struct Definitions ---
 ;; Keyboard Event (32 bytes)
@@ -78,50 +68,44 @@
 ;; Inner function to drain the event queue completely for the current frame
 ;; Returns #t to continue running, or #f if a QUIT event was encountered
 (define (poll-all-events)
-  (if (> (sdl-pollevent event-ptr) 0)
+  (let ((keep-running #t))
+    (while (and keep-running (> (sdl-pollevent event-ptr) 0))
       (let ((type (ffi-deref event-ptr 'int)))
         (cond
           ((= type SDL_QUIT)
            (display "Quit event received! Exiting loop...\n")
-           #f) ; Signal to stop the game loop
+           (set! keep-running #f))
           ((= type SDL_MOUSEMOTION)
            (let ((motion (ffi-deref event-ptr 'SDL_MouseMotionEvent)))
              (format #t "Mouse Motion: x=~A, y=~A, xrel=~A, yrel=~A\n"
                      (cdr (assoc 'x motion))
                      (cdr (assoc 'y motion))
                      (cdr (assoc 'xrel motion))
-                     (cdr (assoc 'yrel motion)))
-             (poll-all-events))) ; Keep pulling more events
+                     (cdr (assoc 'yrel motion)))))
           ((= type SDL_KEYDOWN)
-           (let ((key (ffi-deref event-ptr 'SDL_KeyboardEvent)))
+           (let* ((key (ffi-deref event-ptr 'SDL_KeyboardEvent))
+                  (sc (cdr (assoc 'scancode key))))
              (format #t "Key Down: scancode=~A, sym=~A\n"
-                     (cdr (assoc 'scancode key))
+                     sc
                      (cdr (assoc 'sym key)))
-             (let ((sc (cdr (assoc 'scancode key))))
-               (if (= sc 20)
-                   #f                 ; Stop polling and return #f to exit the game
-                   (poll-all-events)) ; Otherwise, keep pulling more events
-               )))
-          (else
-           (poll-all-events))))
-      #t))
+             (if (= sc 20)
+                 (set! keep-running #f)))))))
+    keep-running))
 
 ;; Main Engine Loop
-(let loop ()
+(define running #t)
+(while running
   ;; 1. Handle all input first
   (if (poll-all-events)
       ;; 2. If no quit was triggered, execute frame updates and rendering
       (begin
-        (if #f
-            (sdl-set-render-drawcolor ren 0 0 255 255)
-            (sdl-set-render-drawcolor ren 255 0 0 255)
-            )
+        (sdl-set-render-drawcolor ren 255 0 0 255)
         (sdl-render-clear ren)
         (sdl-render-present ren)
 
         (sdl-delay 16) ; ~60 frames per second limit
-        (loop)
-        #f)))
+        )
+      (set! running #f)))
 
 (free event-ptr)
 (sdl-destroy-window win)

@@ -1,4 +1,4 @@
-(use "stdlib/basic" "stdlib/libnob")
+(use "stdlib/basic" "stdlib/c" "stdlib/libnob")
 
 (display "=========================================================\n")
 (display "   lext Standard Libraries 100% Coverage Stress Test\n")
@@ -13,9 +13,9 @@
 (define libtest (ffi-open "./test/libtest.so"))
 
 ;; ============================================================================
-;; PART A: basic.scm coverage
+;; PART A: basic.lext & c.lext coverage
 ;; ============================================================================
-(display "\n--- [PART A] Testing basic.scm ---\n")
+(display "\n--- [PART A] Testing basic.lext & c.lext ---\n")
 
 ;; 1. translate-ffi-type
 (display (format #f "  translate-ffi-type (* char): ~S\n" (translate-ffi-type '(* char))))
@@ -43,52 +43,52 @@
 ;; 3. c-import
 (c-import stress-add-points libtest "add_points" Basic_Point (Basic_Point Basic_Point))
 
-;; 4. bc.malloc, bc.free, bc.realloc
-(let* ((p1 (bc.malloc 8))
-       (p2 (bc.realloc p1 16)))
-  (display (format #f "  bc.malloc/realloc ptr: ~A\n" (c-pointer? p2)))
-  (bc.free p2))
+;; 4. c.malloc, c.free, c.realloc
+(let* ((p1 (c.malloc 8))
+       (p2 (c.realloc p1 16)))
+  (display (format #f "  c.malloc/realloc ptr: ~A\n" (c-pointer? p2)))
+  (c.free p2))
 
-;; 5. internal-basic-c-memcpy, internal-basic-c-memset
-(let ((buf1 (bc.malloc 10))
-      (buf2 (bc.malloc 10)))
-  (internal-basic-c-memset buf1 65 10) ; fill with 'A'
-  (internal-basic-c-memcpy buf2 buf1 10)
+;; 5. internal-c-memcpy, internal-c-memset
+(let ((buf1 (c.malloc 10))
+      (buf2 (c.malloc 10)))
+  (internal-c-memset buf1 65 10) ; fill with 'A'
+  (internal-c-memcpy buf2 buf1 10)
   (display (format #f "  memset/memcpy check char: ~A\n" (ffi-deref buf2 'char)))
-  (bc.free buf1)
-  (bc.free buf2))
+  (c.free buf1)
+  (c.free buf2))
 
-;; 6. internal-basic-ptr+
-(let* ((base (bc.malloc 16))
-       (offset-ptr (internal-basic-ptr+ base 8)))
+;; 6. internal-c-ptr+
+(let* ((base (c.malloc 16))
+       (offset-ptr (internal-c-ptr+ base 8)))
   (display (format #f "  ptr+ offset check: ~A\n" (not (eq? base offset-ptr))))
-  (bc.free base))
+  (c.free base))
 
-;; 7. bc.deref, bc.set!, bc.addr
-(let ((ptr (bc.malloc 4)))
-  (bc.set! ptr 'int 999)
-  (display (format #f "  bc.set!/bc.deref: ~A\n" (bc.deref ptr 'int)))
-  (display (format #f "  bc.addr check: ~A\n" (pair? (bc.addr (internal-basic-tptr 'int ptr)))))
-  (bc.free ptr))
+;; 7. c.deref, c.set!, c.addr
+(let ((ptr (c.malloc 4)))
+  (c.set! ptr 'int 999)
+  (display (format #f "  c.set!/c.deref: ~A\n" (c.deref ptr 'int)))
+  (display (format #f "  c.addr check: ~A\n" (pair? (c.addr (internal-c-tptr 'int ptr)))))
+  (c.free ptr))
 
-;; 8. bc.@, bc.=, bc.&
+;; 8. c.@, c.=, c.&
 (with-heap-alloc (pt Basic_Point)
-  (bc.= pt.x 123)
-  (bc.= pt.y 456)
-  (display (format #f "  bc.=@ x: ~A, y: ~A\n" (bc.@ pt.x) (bc.@ pt.y)))
-  (let ((addr-val (bc.& pt.y)))
-    (display (format #f "  bc.& type: ~A\n" (car addr-val)))))
+  (c.= pt.x 123)
+  (c.= pt.y 456)
+  (display (format #f "  c.=@ x: ~A, y: ~A\n" (c.@ pt.x) (c.@ pt.y)))
+  (let ((addr-val (c.& pt.y)))
+    (display (format #f "  c.& type: ~A\n" (car addr-val)))))
 
 ;; 9. with-heap-alloc, with-alloc, with-c-string, with-c-array, with-c-string-array
 (with-alloc (pt Basic_Point)
-  (bc.= pt.x 777)
-  (display (format #f "  with-alloc: ~A\n" (bc.@ pt.x))))
+  (c.= pt.x 777)
+  (display (format #f "  with-alloc: ~A\n" (c.@ pt.x))))
 
 (with-c-string (s "Test string FFI")
   (display (format #f "  with-c-string: ~S\n" (c-string-from-ptr s))))
 
 (with-c-array (arr int '(11 22 33))
-  (display (format #f "  with-c-array [1]: ~A\n" (bc.@ arr.1))))
+  (display (format #f "  with-c-array [1]: ~A\n" (c.@ arr.1))))
 
 (with-c-string-array (s-arr '("foo" "bar"))
   (display (format #f "  with-c-string-array: ~S\n" (c-string-array->list s-arr))))
@@ -97,33 +97,49 @@
 (let ((out (capture (display "Stdout captured line!\n"))))
   (display (format #f "  capture output: ~S\n" out)))
 
-;; 11. bc.null-ptr?, bc.null-ptr
-(display (format #f "  null-ptr? (null-ptr): ~A\n" (bc.null-ptr? (bc.null-ptr))))
-(display (format #f "  null-ptr? non-null: ~A\n" (bc.null-ptr? 12345)))
+;; 11. c.null-ptr?, c.null-ptr
+(display (format #f "  null-ptr? (null-ptr): ~A\n" (c.null-ptr? (c.null-ptr))))
+(display (format #f "  null-ptr? non-null: ~A\n" (c.null-ptr? 12345)))
 
-;; 12. bc.c-cast
+;; 12. c.c-cast
 (with-alloc (pt Basic_Point)
-  (let ((casted (bc.c-cast pt 'int)))
-    (display (format #f "  bc.c-cast type: ~A\n" (car casted)))))
+  (let ((casted (c.c-cast pt 'int)))
+    (display (format #f "  c.c-cast type: ~A\n" (car casted)))))
 
-;; 13. open-namespace, use-namespace
-(use-namespace "bc."
-  (display (format #f "  use-namespace block: ~A\n" (defined? 'malloc))))
+;; 13. open-namespace, use-namespace & loop constructs
+(use-namespace "c"
+  (display (format #f "  use-namespace block (c.malloc): ~A\n" (defined? 'malloc))))
+
+(open-namespace "bc")
+(let ((loop-checked 0))
+  (while (< loop-checked 3)
+    (set! loop-checked (+ loop-checked 1)))
+  (display (format #f "  while loop check: ~A\n" loop-checked)))
+
+(let ((for-checked 0))
+  (for (i 0 4)
+    (set! for-checked (+ for-checked i)))
+  (display (format #f "  for loop check: ~A\n" for-checked)))
+
+(let ((foreach-checked ""))
+  (foreach (x '("a" "b" "c"))
+    (set! foreach-checked (string-append foreach-checked x)))
+  (display (format #f "  foreach loop check: ~S\n" foreach-checked)))
 
 
 ;; ============================================================================
-;; PART B: libnob.scm coverage
+;; PART B: libnob.lext coverage
 ;; ============================================================================
-(display "\n--- [PART B] Testing libnob.scm ---\n")
+(display "\n--- [PART B] Testing libnob.lext ---\n")
 
 ;; 1. Pointer arithmetic
-(let* ((ptr (bc.malloc 8))
+(let* ((ptr (c.malloc 8))
        (addr (nob.c-pointer->integer ptr))
        (ptr2 (nob.integer->c-pointer addr))
        (ptr3 (nob.pointer-add ptr2 4)))
   (display (format #f "  Pointer conversions: ~A\n" (eq? ptr ptr2)))
   (display (format #f "  Pointer add offset: ~A\n" (not (eq? ptr2 ptr3))))
-  (bc.free ptr))
+  (c.free ptr))
 
 ;; 2. Log API
 (nob.minimal-log-level-set! 0)
@@ -151,7 +167,7 @@
 
 ;; Command redirects
 (let ((cmd (nob.cmd-new))
-      (redir (bc.malloc 24)))
+      (redir (c.malloc 24)))
   (nob.cmd-append cmd "echo" "redirect-test")
   (ffi-set! redir '(struct (pointer fdin) (pointer fdout) (pointer fderr)) '((fdin . ()) (fdout . ()) (fderr . ())))
   (display (format #f "  cmd-run-sync-redirect: ~A\n" (nob.cmd-run-sync-redirect cmd redir)))
@@ -159,7 +175,7 @@
   (let ((pid (nob.cmd-run-async-redirect cmd redir)))
     (display (format #f "  cmd-run-async-redirect pid: ~A\n" (nob.proc-wait pid))))
   (nob.cmd-free cmd)
-  (bc.free redir))
+  (c.free redir))
 
 ;; 4. File operations & temporary paths
 (let ((temp-path "build/test_temp_file.txt"))
@@ -194,11 +210,11 @@
   (nob.walk-dir "build/test_dir" (lambda (p t l) (set! walk-count (+ walk-count 1)) #t))
   (display (format #f "  walk-dir walked ~A files/dirs\n" walk-count)))
 ;; Cleanup copied dir
-(nob.delete-file "build/test_dir/lib.scm")
+(nob.delete-file "build/test_dir/lib.lext")
 (nob.delete-file "build/test_dir")
 
 ;; String builder padding
-(let ((sb (bc.malloc 24)))
+(let ((sb (c.malloc 24)))
   (ffi-set! sb 'Nob_String_Builder '((items . ()) (count . 0) (capacity . 0)))
   (nob.sb-pad-align sb 16)
   (let* ((sb-struct (ffi-deref sb 'Nob_String_Builder))
@@ -207,7 +223,7 @@
   (nob.cmd-free sb))
 
 ;; 5. Processes wait & flush API
-(let* ((procs (bc.malloc 24)))
+(let* ((procs (c.malloc 24)))
   (ffi-set! procs 'Nob_Procs '((items . ()) (count . 0) (capacity . 0)))
   ;; Add some dummy child process
   (let* ((cmd (nob.cmd-new)))
@@ -218,7 +234,7 @@
       (display (format #f "  procs-wait-and-reset: ~A\n" (nob.procs-wait-and-reset procs))))))
 
 ;; Pipes API
-(let ((pipe-ptr (bc.malloc 8)))
+(let ((pipe-ptr (c.malloc 8)))
   (display (format #f "  pipe-create: ~A\n" (nob.pipe-create pipe-ptr)))
   (let* ((pipe-struct (ffi-deref pipe-ptr 'Nob_Pipe))
          (read-fd (cdr (assoc 'read pipe-struct)))
@@ -226,24 +242,24 @@
     (display (format #f "    read fd: ~A, write fd: ~A\n" read-fd write-fd))
     (nob.fd-close read-fd)
     (nob.fd-close write-fd))
-  (bc.free pipe-ptr))
+  (c.free pipe-ptr))
 
 ;; Chains API
-(let ((chain (bc.malloc 40))
+(let ((chain (c.malloc 40))
       (cmd (nob.cmd-new)))
   (nob.cmd-append cmd "echo" "chain-hello")
   (display (format #f "  chain-begin: ~A\n" (nob.chain-begin chain)))
   (display (format #f "  chain-cmd: ~A\n" (nob.chain-cmd chain cmd :err2out #t :dont-reset #t)))
   (display (format #f "  chain-end: ~A\n" (nob.chain-end chain :max-procs 4)))
   (nob.cmd-free cmd)
-  (bc.free chain))
+  (c.free chain))
 
 ;; Directory iterator API
-(let ((dir-ent (bc.malloc 32))) ; size of Nob_Dir_Entry
+(let ((dir-ent (c.malloc 32))) ; size of Nob_Dir_Entry
   (display (format #f "  dir-entry-open: ~A\n" (nob.dir-entry-open "stdlib" dir-ent)))
   (display (format #f "  dir-entry-next: ~A\n" (nob.dir-entry-next dir-ent)))
   (nob.dir-entry-close (ffi-deref dir-ent 'Nob_Dir_Entry))
-  (bc.free dir-ent))
+  (c.free dir-ent))
 
 ;; 6. String Views API
 (let* ((sv1 (nob.sv-from-cstr "   Trimmed SV!   "))
@@ -259,7 +275,7 @@
 
 ;; String View Chopping
 (let* ((sv (nob.sv-from-cstr "foo:bar:baz"))
-       (sv-ptr (bc.malloc 16)))
+       (sv-ptr (c.malloc 16)))
   (ffi-set! sv-ptr 'Nob_String_View sv)
   (let* ((chopped1 (nob.sv-chop-left sv-ptr 4))
          (chopped2 (nob.sv-chop-right sv-ptr 4)))
@@ -273,7 +289,7 @@
   (ffi-set! sv-ptr 'Nob_String_View sv)
   (display (format #f "  sv-chop-prefix: ~A\n" (nob.sv-chop-prefix sv-ptr (nob.sv-from-cstr "foo"))))
   (display (format #f "  sv-chop-suffix: ~A\n" (nob.sv-chop-suffix sv-ptr (nob.sv-from-cstr "baz"))))
-  (bc.free sv-ptr))
+  (c.free sv-ptr))
 
 ;; 7. Temp Allocator API
 (nob.temp-reset)
@@ -287,7 +303,7 @@
   (nob.temp-rewind checkpoint))
 
 ;; 8. Dynamic Arrays API
-(let ((da (bc.malloc 24)))
+(let ((da (c.malloc 24)))
   (nob.da-set! da '((items . ()) (count . 0) (capacity . 0)))
   (nob.da-reserve da 10 4) ; reserve for 10 ints
   (nob.da-append da 100 int)
@@ -299,7 +315,7 @@
   (display (format #f "  da-last: ~A\n" (nob.da-last da 'int)))
   (display (format #f "  da-pop: ~A\n" (nob.da-pop da 'int)))
   (nob.da-free da)
-  (bc.free da))
+  (c.free da))
 
 ;; 9. nob.shift
 (let ((lst '("x" "y" "z")))
