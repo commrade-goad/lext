@@ -11,6 +11,7 @@
       (error "Failed to compile test/test_lib.c")))
 
 (define libtest (ffi-open "./test/libtest.so"))
+(define libc (ffi-open #f))
 
 ;; ============================================================================
 ;; PART A: basic.lext & c.lext coverage
@@ -116,6 +117,11 @@
 
 (with-c-string-array (s-arr '("foo" "bar"))
   (display (format #f "  with-c-string-array: ~S\n" (c-string-array->list s-arr))))
+
+;; 9b. Variadic C FFI call (printf)
+(c-import stress-printf libc "printf" int (string) 1)
+(let ((out (capture (stress-printf "Variadic: %s %d %f" "lext" 42 3.14))))
+  (display (format #f "  variadic printf: ~S\n" out)))
 
 ;; 10. capture
 (let ((out (capture (display "Stdout captured line!\n"))))
