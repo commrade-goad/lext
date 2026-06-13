@@ -1,6 +1,6 @@
-(define libnob (ffi-open #f))
+(define internal-libnob (ffi-open #f))
 
-(define-macro (c-import scheme-name lib-handle c-name ret-type arg-types . nfixed)
+(define-macro (internal-libnob-c-import scheme-name lib-handle c-name ret-type arg-types . nfixed)
   (let ((func-ptr (gensym)))
     `(begin
        (define ,func-ptr (ffi-sym ,lib-handle ,c-name))
@@ -10,10 +10,10 @@
               `(ffi-call ,func-ptr ',ret-type ',arg-types args ,(car nfixed)))))))
 
 ;; Libc memory management
-(define libc (ffi-open #f))
-(c-import malloc libc "malloc" pointer (int))
-(c-import free   libc "free"   void    (pointer))
-(c-import realloc libc "realloc" pointer (pointer int))
+(define internal-libnob-libc (ffi-open #f))
+(internal-libnob-c-import internal-libnob-malloc internal-libnob-libc "malloc" pointer (int))
+(internal-libnob-c-import internal-libnob-free   internal-libnob-libc "free"   void    (pointer))
+(internal-libnob-c-import internal-libnob-realloc internal-libnob-libc "realloc" pointer (pointer int))
 
 ;; Pointer Arithmetic Helpers
 (define (nob.c-pointer->integer ptr)
@@ -97,87 +97,87 @@
                       (pointer fderr)))
 
 ;; C Function Imports (prefixed with internal-nob-)
-(c-import internal-nob-cmd-append               libnob "nob__cmd_append"                 void    (pointer ulong pointer))
-(c-import internal-nob-cmd-run-opt              libnob "nob_cmd_run_opt"                 int     (pointer Nob_Cmd_Opt))
-(c-import internal-nob-needs-rebuild1           libnob "nob_needs_rebuild1"              int     (string string))
-(c-import internal-nob-delete-file               libnob "nob_delete_file"                 int     (string))
-(c-import internal-nob-mkdir-if-nexist           libnob "nob_mkdir_if_not_exists"         int     (string))
-(c-import internal-nob-file-exists               libnob "nob_file_exists"                 int     (string))
-(c-import internal-nob-copy-file                 libnob "nob_copy_file"                   int     (string string))
-(c-import internal-nob-copy-dir-recursively      libnob "nob_copy_directory_recursively"  int     (string string))
-(c-import internal-nob-read-entire-file          libnob "nob_read_entire_file"            int     (string pointer))
-(c-import internal-nob-write-entire-file         libnob "nob_write_entire_file"           int     (string pointer ulong))
-(c-import internal-nob-get-file-type             libnob "nob_get_file_type"               int     (string))
-(c-import internal-nob-rename                    libnob "nob_rename"                      int     (string string))
-(c-import internal-nob-path-name                 libnob "nob_path_name"                   string  (string))
-(c-import internal-nob-get-current-dir-temp      libnob "nob_get_current_dir_temp"        string  ())
-(c-import internal-nob-set-current-dir           libnob "nob_set_current_dir"             int     (string))
-(c-import internal-nob-temp-dir-name             libnob "nob_temp_dir_name"               string  (string))
-(c-import internal-nob-temp-file-name             libnob "nob_temp_file_name"               string  (string))
-(c-import internal-nob-temp-file-ext              libnob "nob_temp_file_ext"                string  (string))
-(c-import internal-nob-temp-running-exe-path     libnob "nob_temp_running_executable_path" string  ())
-(c-import internal-nob-nanos-since-epoch         libnob "nob_nanos_since_unspecified_epoch" uint64 ())
-(c-import internal-nob-nprocs                    libnob "nob_nprocs"                      int     ())
-(c-import internal-nob-read-entire-dir           libnob "nob_read_entire_dir"             int     (string pointer))
-(c-import internal-nob-sb-pad-align              libnob "nob_sb_pad_align"                void    (pointer ulong))
-(c-import internal-nob-proc-wait                 libnob "nob_proc_wait"                   int     (int))
-(c-import internal-nob-procs-wait                libnob "nob_procs_wait"                  int     (Nob_Procs))
-(c-import internal-nob-procs-flush               libnob "nob_procs_flush"                 int     (pointer))
-(c-import internal-nob-pipe-create               libnob "nob_pipe_create"                 int     (pointer))
-(c-import internal-nob-chain-begin-opt           libnob "nob_chain_begin_opt"             int     (pointer Nob_Chain_Begin_Opt))
-(c-import internal-nob-chain-cmd-opt             libnob "nob_chain_cmd_opt"               int     (pointer pointer Nob_Chain_Cmd_Opt))
-(c-import internal-nob-chain-end-opt             libnob "nob_chain_end_opt"               int     (pointer Nob_Chain_End_Opt))
-(c-import internal-nob-temp-reset                libnob "nob_temp_reset"                  void    ())
-(c-import internal-nob-temp-save                 libnob "nob_temp_save"                   ulong   ())
-(c-import internal-nob-temp-rewind               libnob "nob_temp_rewind"                 void    (ulong))
-(c-import internal-nob-temp-strdup               libnob "nob_temp_strdup"                 string  (string))
-(c-import internal-nob-temp-strndup              libnob "nob_temp_strndup"                string  (string ulong))
-(c-import internal-nob-temp-alloc                libnob "nob_temp_alloc"                  pointer (ulong))
-(c-import internal-nob-log                       libnob "nob_log"                         void    (int string string) 2)
+(internal-libnob-c-import internal-nob-cmd-append               internal-libnob "nob__cmd_append"                 void    (pointer ulong pointer))
+(internal-libnob-c-import internal-nob-cmd-run-opt              internal-libnob "nob_cmd_run_opt"                 int     (pointer Nob_Cmd_Opt))
+(internal-libnob-c-import internal-nob-needs-rebuild1           internal-libnob "nob_needs_rebuild1"              int     (string string))
+(internal-libnob-c-import internal-nob-delete-file               internal-libnob "nob_delete_file"                 int     (string))
+(internal-libnob-c-import internal-nob-mkdir-if-nexist           internal-libnob "nob_mkdir_if_not_exists"         int     (string))
+(internal-libnob-c-import internal-nob-file-exists               internal-libnob "nob_file_exists"                 int     (string))
+(internal-libnob-c-import internal-nob-copy-file                 internal-libnob "nob_copy_file"                   int     (string string))
+(internal-libnob-c-import internal-nob-copy-dir-recursively      internal-libnob "nob_copy_directory_recursively"  int     (string string))
+(internal-libnob-c-import internal-nob-read-entire-file          internal-libnob "nob_read_entire_file"            int     (string pointer))
+(internal-libnob-c-import internal-nob-write-entire-file         internal-libnob "nob_write_entire_file"           int     (string pointer ulong))
+(internal-libnob-c-import internal-nob-get-file-type             internal-libnob "nob_get_file_type"               int     (string))
+(internal-libnob-c-import internal-nob-rename                    internal-libnob "nob_rename"                      int     (string string))
+(internal-libnob-c-import internal-nob-path-name                 internal-libnob "nob_path_name"                   string  (string))
+(internal-libnob-c-import internal-nob-get-current-dir-temp      internal-libnob "nob_get_current_dir_temp"        string  ())
+(internal-libnob-c-import internal-nob-set-current-dir           internal-libnob "nob_set_current_dir"             int     (string))
+(internal-libnob-c-import internal-nob-temp-dir-name             internal-libnob "nob_temp_dir_name"               string  (string))
+(internal-libnob-c-import internal-nob-temp-file-name             internal-libnob "nob_temp_file_name"               string  (string))
+(internal-libnob-c-import internal-nob-temp-file-ext              internal-libnob "nob_temp_file_ext"                string  (string))
+(internal-libnob-c-import internal-nob-temp-running-exe-path     internal-libnob "nob_temp_running_executable_path" string  ())
+(internal-libnob-c-import internal-nob-nanos-since-epoch         internal-libnob "nob_nanos_since_unspecified_epoch" uint64 ())
+(internal-libnob-c-import internal-nob-nprocs                    internal-libnob "nob_nprocs"                      int     ())
+(internal-libnob-c-import internal-nob-read-entire-dir           internal-libnob "nob_read_entire_dir"             int     (string pointer))
+(internal-libnob-c-import internal-nob-sb-pad-align              internal-libnob "nob_sb_pad_align"                void    (pointer ulong))
+(internal-libnob-c-import internal-nob-proc-wait                 internal-libnob "nob_proc_wait"                   int     (int))
+(internal-libnob-c-import internal-nob-procs-wait                internal-libnob "nob_procs_wait"                  int     (Nob_Procs))
+(internal-libnob-c-import internal-nob-procs-flush               internal-libnob "nob_procs_flush"                 int     (pointer))
+(internal-libnob-c-import internal-nob-pipe-create               internal-libnob "nob_pipe_create"                 int     (pointer))
+(internal-libnob-c-import internal-nob-chain-begin-opt           internal-libnob "nob_chain_begin_opt"             int     (pointer Nob_Chain_Begin_Opt))
+(internal-libnob-c-import internal-nob-chain-cmd-opt             internal-libnob "nob_chain_cmd_opt"               int     (pointer pointer Nob_Chain_Cmd_Opt))
+(internal-libnob-c-import internal-nob-chain-end-opt             internal-libnob "nob_chain_end_opt"               int     (pointer Nob_Chain_End_Opt))
+(internal-libnob-c-import internal-nob-temp-reset                internal-libnob "nob_temp_reset"                  void    ())
+(internal-libnob-c-import internal-nob-temp-save                 internal-libnob "nob_temp_save"                   ulong   ())
+(internal-libnob-c-import internal-nob-temp-rewind               internal-libnob "nob_temp_rewind"                 void    (ulong))
+(internal-libnob-c-import internal-nob-temp-strdup               internal-libnob "nob_temp_strdup"                 string  (string))
+(internal-libnob-c-import internal-nob-temp-strndup              internal-libnob "nob_temp_strndup"                string  (string ulong))
+(internal-libnob-c-import internal-nob-temp-alloc                internal-libnob "nob_temp_alloc"                  pointer (ulong))
+(internal-libnob-c-import internal-nob-log                       internal-libnob "nob_log"                         void    (int string string) 2)
 
 ;; Additional C imports for 100% header parity
-(c-import internal-nob-cmd-render                libnob "nob_cmd_render"                  void    (Nob_Cmd pointer))
-(c-import internal-nob-cmd-run-async             libnob "nob_cmd_run_async"               int     (Nob_Cmd))
-(c-import internal-nob-cmd-run-async-and-reset   libnob "nob_cmd_run_async_and_reset"     int     (pointer))
-(c-import internal-nob-cmd-run-async-redirect    libnob "nob_cmd_run_async_redirect"      int     (Nob_Cmd Nob_Cmd_Redirect))
-(c-import internal-nob-cmd-run-async-redirect-and-reset libnob "nob_cmd_run_async_redirect_and_reset" int (pointer Nob_Cmd_Redirect))
-(c-import internal-nob-cmd-run-sync              libnob "nob_cmd_run_sync"                int     (Nob_Cmd))
-(c-import internal-nob-cmd-run-sync-and-reset    libnob "nob_cmd_run_sync_and_reset"      int     (pointer))
-(c-import internal-nob-cmd-run-sync-redirect     libnob "nob_cmd_run_sync_redirect"       int     (Nob_Cmd Nob_Cmd_Redirect))
-(c-import internal-nob-cmd-run-sync-redirect-and-reset libnob "nob_cmd_run_sync_redirect_and_reset" int (pointer Nob_Cmd_Redirect))
+(internal-libnob-c-import internal-nob-cmd-render                internal-libnob "nob_cmd_render"                  void    (Nob_Cmd pointer))
+(internal-libnob-c-import internal-nob-cmd-run-async             internal-libnob "nob_cmd_run_async"               int     (Nob_Cmd))
+(internal-libnob-c-import internal-nob-cmd-run-async-and-reset   internal-libnob "nob_cmd_run_async_and_reset"     int     (pointer))
+(internal-libnob-c-import internal-nob-cmd-run-async-redirect    internal-libnob "nob_cmd_run_async_redirect"      int     (Nob_Cmd Nob_Cmd_Redirect))
+(internal-libnob-c-import internal-nob-cmd-run-async-redirect-and-reset internal-libnob "nob_cmd_run_async_redirect_and_reset" int (pointer Nob_Cmd_Redirect))
+(internal-libnob-c-import internal-nob-cmd-run-sync              internal-libnob "nob_cmd_run_sync"                int     (Nob_Cmd))
+(internal-libnob-c-import internal-nob-cmd-run-sync-and-reset    internal-libnob "nob_cmd_run_sync_and_reset"      int     (pointer))
+(internal-libnob-c-import internal-nob-cmd-run-sync-redirect     internal-libnob "nob_cmd_run_sync_redirect"       int     (Nob_Cmd Nob_Cmd_Redirect))
+(internal-libnob-c-import internal-nob-cmd-run-sync-redirect-and-reset internal-libnob "nob_cmd_run_sync_redirect_and_reset" int (pointer Nob_Cmd_Redirect))
 
-(c-import internal-nob-fd-open-for-read          libnob "nob_fd_open_for_read"            int     (string))
-(c-import internal-nob-fd-open-for-write         libnob "nob_fd_open_for_write"           int     (string))
-(c-import internal-nob-fd-close                  libnob "nob_fd_close"                    void    (int))
-(c-import internal-nob-procs-wait-and-reset      libnob "nob_procs_wait_and_reset"        int     (pointer))
-(c-import internal-nob-procs-append-with-flush   libnob "nob_procs_append_with_flush"     int     (pointer int ulong))
+(internal-libnob-c-import internal-nob-fd-open-for-read          internal-libnob "nob_fd_open_for_read"            int     (string))
+(internal-libnob-c-import internal-nob-fd-open-for-write         internal-libnob "nob_fd_open_for_write"           int     (string))
+(internal-libnob-c-import internal-nob-fd-close                  internal-libnob "nob_fd_close"                    void    (int))
+(internal-libnob-c-import internal-nob-procs-wait-and-reset      internal-libnob "nob_procs_wait_and_reset"        int     (pointer))
+(internal-libnob-c-import internal-nob-procs-append-with-flush   internal-libnob "nob_procs_append_with_flush"     int     (pointer int ulong))
 
 
 ;; Directory Entry Functions
-(c-import internal-nob-dir-entry-open            libnob "nob_dir_entry_open"              int     (string pointer))
-(c-import internal-nob-dir-entry-next            libnob "nob_dir_entry_next"              int     (pointer))
-(c-import internal-nob-dir-entry-close           libnob "nob_dir_entry_close"             void    (Nob_Dir_Entry))
+(internal-libnob-c-import internal-nob-dir-entry-open            internal-libnob "nob_dir_entry_open"              int     (string pointer))
+(internal-libnob-c-import internal-nob-dir-entry-next            internal-libnob "nob_dir_entry_next"              int     (pointer))
+(internal-libnob-c-import internal-nob-dir-entry-close           internal-libnob "nob_dir_entry_close"             void    (Nob_Dir_Entry))
 
 ;; String View Functions
-(c-import internal-nob-sv-from-cstr              libnob "nob_sv_from_cstr"                Nob_String_View (string))
-(c-import internal-nob-sv-from-parts             libnob "nob_sv_from_parts"               Nob_String_View (pointer ulong))
-(c-import internal-nob-sv-trim                   libnob "nob_sv_trim"                     Nob_String_View (Nob_String_View))
-(c-import internal-nob-sv-trim-left              libnob "nob_sv_trim_left"                Nob_String_View (Nob_String_View))
-(c-import internal-nob-sv-trim-right             libnob "nob_sv_trim_right"               Nob_String_View (Nob_String_View))
-(c-import internal-nob-sv-chop-left              libnob "nob_sv_chop_left"                Nob_String_View (pointer ulong))
-(c-import internal-nob-sv-chop-right             libnob "nob_sv_chop_right"               Nob_String_View (pointer ulong))
-(c-import internal-nob-sv-chop-by-delim          libnob "nob_sv_chop_by_delim"            Nob_String_View (pointer char))
-(c-import internal-nob-sv-chop-prefix            libnob "nob_sv_chop_prefix"              int     (pointer Nob_String_View))
-(c-import internal-nob-sv-chop-suffix            libnob "nob_sv_chop_suffix"              int     (pointer Nob_String_View))
-(c-import internal-nob-sv-eq                     libnob "nob_sv_eq"                       int     (Nob_String_View Nob_String_View))
-(c-import internal-nob-sv-starts-with            libnob "nob_sv_starts_with"              int     (Nob_String_View Nob_String_View))
-(c-import internal-nob-sv-ends-with              libnob "nob_sv_ends_with"                int     (Nob_String_View Nob_String_View))
-(c-import internal-nob-sv-ends-with-cstr         libnob "nob_sv_ends_with_cstr"           int     (Nob_String_View string))
+(internal-libnob-c-import internal-nob-sv-from-cstr              internal-libnob "nob_sv_from_cstr"                Nob_String_View (string))
+(internal-libnob-c-import internal-nob-sv-from-parts             internal-libnob "nob_sv_from_parts"               Nob_String_View (pointer ulong))
+(internal-libnob-c-import internal-nob-sv-trim                   internal-libnob "nob_sv_trim"                     Nob_String_View (Nob_String_View))
+(internal-libnob-c-import internal-nob-sv-trim-left              internal-libnob "nob_sv_trim_left"                Nob_String_View (Nob_String_View))
+(internal-libnob-c-import internal-nob-sv-trim-right             internal-libnob "nob_sv_trim_right"               Nob_String_View (Nob_String_View))
+(internal-libnob-c-import internal-nob-sv-chop-left              internal-libnob "nob_sv_chop_left"                Nob_String_View (pointer ulong))
+(internal-libnob-c-import internal-nob-sv-chop-right             internal-libnob "nob_sv_chop_right"               Nob_String_View (pointer ulong))
+(internal-libnob-c-import internal-nob-sv-chop-by-delim          internal-libnob "nob_sv_chop_by_delim"            Nob_String_View (pointer char))
+(internal-libnob-c-import internal-nob-sv-chop-prefix            internal-libnob "nob_sv_chop_prefix"              int     (pointer Nob_String_View))
+(internal-libnob-c-import internal-nob-sv-chop-suffix            internal-libnob "nob_sv_chop_suffix"              int     (pointer Nob_String_View))
+(internal-libnob-c-import internal-nob-sv-eq                     internal-libnob "nob_sv_eq"                       int     (Nob_String_View Nob_String_View))
+(internal-libnob-c-import internal-nob-sv-starts-with            internal-libnob "nob_sv_starts_with"              int     (Nob_String_View Nob_String_View))
+(internal-libnob-c-import internal-nob-sv-ends-with              internal-libnob "nob_sv_ends_with"                int     (Nob_String_View Nob_String_View))
+(internal-libnob-c-import internal-nob-sv-ends-with-cstr         internal-libnob "nob_sv_ends_with_cstr"           int     (Nob_String_View string))
 
 ;; --- Scheme Wrapper Functions (prefixed with nob.) ---
 
 ;; Global variables
-(define nob.minimal-log-level-ptr (ffi-sym libnob "nob_minimal_log_level"))
+(define nob.minimal-log-level-ptr (ffi-sym internal-libnob "nob_minimal_log_level"))
 
 (define (nob.minimal-log-level)
   (ffi-deref nob.minimal-log-level-ptr 'int))
@@ -191,7 +191,7 @@
 
 ;; nob.cmd-new: allocate and initialize a new Nob_Cmd
 (define (nob.cmd-new)
-  (let ((ptr (malloc 24)))
+  (let ((ptr (internal-libnob-malloc 24)))
     (ffi-set! ptr 'Nob_Cmd '((items . ()) (count . 0) (capacity . 0)))
     ptr))
 
@@ -199,20 +199,20 @@
 (define (nob.cmd-append cmd . args)
   (for-each
     (lambda (arg)
-      (let ((str-ptr-buf (malloc 8)))
+      (let ((str-ptr-buf (internal-libnob-malloc 8)))
         (ffi-set! str-ptr-buf 'pointer arg)
         (internal-nob-cmd-append cmd 1 str-ptr-buf)
-        (free str-ptr-buf)))
+        (internal-libnob-free str-ptr-buf)))
     args))
 
-;; nob.cmd-free: free a Nob_Cmd and its internal items buffer
+;; nob.cmd-free: internal-libnob-free a Nob_Cmd and its internal items buffer
 (define (nob.cmd-free cmd)
   (if (and (not (null? cmd)) (not (eq? cmd 0)))
       (let* ((cmd-struct (ffi-deref cmd 'Nob_Cmd))
              (items-ptr (cdr (assoc 'items cmd-struct))))
         (if (not (null? items-ptr))
-            (free items-ptr))
-        (free cmd))))
+            (internal-libnob-free items-ptr))
+        (internal-libnob-free cmd))))
 
 ;; nob.cmd-run: run a command with Scheme-style keyword arguments.
 ;; Supports passing either a Nob_Cmd pointer OR a list of strings directly.
@@ -260,7 +260,7 @@
 
 ;; nob.read-entire-file: read file into string using string builder FFI
 (define (nob.read-entire-file path)
-  (let ((sb (malloc 24)))
+  (let ((sb (internal-libnob-malloc 24)))
     (ffi-set! sb 'Nob_String_Builder '((items . ()) (count . 0) (capacity . 0)))
     (let ((success (not (= (internal-nob-read-entire-file path sb) 0))))
       (if success
@@ -271,14 +271,14 @@
                 (let* ((bytes (ffi-deref items-ptr (list 'array 'char count)))
                        (chars (map integer->char bytes))
                        (str (list->string chars)))
-                  (if (not (null? items-ptr)) (free items-ptr))
-                  (free sb)
+                  (if (not (null? items-ptr)) (internal-libnob-free items-ptr))
+                  (internal-libnob-free sb)
                   str)
                 (begin
-                  (free sb)
+                  (internal-libnob-free sb)
                   "")))
           (begin
-            (free sb)
+            (internal-libnob-free sb)
             #f)))))
 
 ;; nob.write-entire-file: write string data directly to file
@@ -336,7 +336,7 @@
 
 ;; nob.read-entire-dir: read directory and return list of file names
 (define (nob.read-entire-dir parent)
-  (let ((children (malloc 24)))
+  (let ((children (internal-libnob-malloc 24)))
     (ffi-set! children 'Nob_File_Paths '((items . ()) (count . 0) (capacity . 0)))
     (let ((success (not (= (internal-nob-read-entire-dir parent children) 0))))
       (if success
@@ -351,11 +351,11 @@
                            (str (ffi-deref str-ptr 'string)))
                       (set! result (cons str result))
                       (loop (+ i 1))))))
-            (if (and (not (null? items-ptr)) (not (eq? items-ptr 0))) (free items-ptr))
-            (free children)
+            (if (and (not (null? items-ptr)) (not (eq? items-ptr 0))) (internal-libnob-free items-ptr))
+            (internal-libnob-free children)
             (reverse result))
           (begin
-            (free children)
+            (internal-libnob-free children)
             #f)))))
 
 ;; nob.sb-pad-align: pad string builder to alignment size boundary
@@ -488,7 +488,7 @@
   (let* ((da-struct (nob.da-get da))
          (items (cdr (assoc 'items da-struct))))
     (if (and (not (null? items)) (not (eq? items 0)))
-        (free items))
+        (internal-libnob-free items))
     (nob.da-update! da '() 0 0)))
 
 (define (nob.da-reserve da expected-capacity element-size)
@@ -502,7 +502,7 @@
                                (if (> expected-capacity cap)
                                    (loop (* cap 2))
                                    cap)))
-               (new-items (realloc items (* new-capacity element-size))))
+               (new-items (internal-libnob-realloc items (* new-capacity element-size))))
           (nob.da-update! da new-items count new-capacity)))))
 
 (define-macro (nob.da-append da item type)
@@ -613,7 +613,7 @@
 
 ;; --- Command Render and Run Wrappers ---
 (define (nob.cmd-render cmd)
-  (let ((sb (malloc 24)))
+  (let ((sb (internal-libnob-malloc 24)))
     (ffi-set! sb 'Nob_String_Builder '((items . ()) (count . 0) (capacity . 0)))
     (internal-nob-cmd-render (if (c-pointer? cmd) (ffi-deref cmd 'Nob_Cmd) cmd) sb)
     (let* ((sb-struct (ffi-deref sb 'Nob_String_Builder))
@@ -624,8 +624,8 @@
                            (chars (map integer->char bytes)))
                       (list->string chars))
                     "")))
-      (if (and (not (null? items-ptr)) (not (eq? items-ptr 0))) (free items-ptr))
-      (free sb)
+      (if (and (not (null? items-ptr)) (not (eq? items-ptr 0))) (internal-libnob-free items-ptr))
+      (internal-libnob-free sb)
       str)))
 
 (define (nob.cmd-run-async cmd)

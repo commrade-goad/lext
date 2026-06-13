@@ -1,6 +1,5 @@
 (use "stdlib/libnob")
 
-
 (define build-dir "build")
 
 (define (read-file-string filename)
