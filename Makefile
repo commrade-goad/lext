@@ -12,15 +12,15 @@ lext: main.o s7.o nob.o
 	$(CC) main.o s7.o nob.o -o lext $(LIBS) $(FFI_LIBS)
 
 # Compiles your logic (Takes milliseconds)
-main.o: main.c
-	$(CC) $(CFLAGS) $(FFI_CFLAGS) -DHASHVER=\"$(GIT_HASH)\" -c main.c -o main.o
+main.o: src/main.c
+	$(CC) $(CFLAGS) $(FFI_CFLAGS) -DHASHVER=\"$(GIT_HASH)\" -c src/main.c -o main.o
 
 # Compiles the Lisp engine (Only runs ONCE, or if s7.c changes)
-s7.o: s7/s7.c s7/s7.h
-	$(CC) $(CFLAGS) -c s7/s7.c -o s7.o
+s7.o: src/s7/s7.c src/s7/s7.h
+	$(CC) $(CFLAGS) -c src/s7/s7.c -o s7.o
 
-nob.o: nob.c nob.h
-	$(CC) $(CFLAGS) -c nob.c -o nob.o
+nob.o: src/nob.c src/nob.h
+	$(CC) $(CFLAGS) -c src/nob.c -o nob.o
 
 clean:
 	rm -f *.o lext

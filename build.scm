@@ -1,4 +1,4 @@
-(load "libnob.scm")
+(load "stdlib/libnob.scm")
 
 (define build-dir "build")
 
@@ -57,9 +57,9 @@
   (string-append build-dir "/" path))
 
 (define (build-static-nob)
-  (if (or (nob.needs-rebuild? (append-builddir "libnob.o") "nob.c")
-          (nob.needs-rebuild? (append-builddir "libnob.o") "nob.h"))
-      (if (not (nob.cmd-run `("gcc" "-O2" "-fPIC" "-c" "nob.c" "-o" ,(append-builddir "libnob.o"))))
+  (if (or (nob.needs-rebuild? (append-builddir "libnob.o") "src/nob.c")
+          (nob.needs-rebuild? (append-builddir "libnob.o") "src/nob.h"))
+      (if (not (nob.cmd-run `("gcc" "-O2" "-fPIC" "-c" "src/nob.c" "-o" ,(append-builddir "libnob.o"))))
           (error "Failed to compile libnob.o"))
       (display "libnob.o is up to date.\n")))
 
@@ -87,29 +87,25 @@
 (define ffi-cflags (get-pkg-config-cflags))
 (define ffi-libs (get-pkg-config-libs))
 
-(format #t "Git Hash: ~A\n" git-hash)
-(format #t "libffi CFLAGS: ~A\n" ffi-cflags)
-(format #t "libffi LIBS: ~A\n" ffi-libs)
-
 ;; 0. Build static nob
 (build-static-nob)
 
 ;; 1. Compile s7.o
-(if (or (nob.needs-rebuild? (append-builddir "s7.o") "s7/s7.c")
-        (nob.needs-rebuild? (append-builddir "s7.o") "s7/s7.h"))
+(if (or (nob.needs-rebuild? (append-builddir "s7.o") "src/s7/s7.c")
+        (nob.needs-rebuild? (append-builddir "s7.o") "src/s7/s7.h"))
     (begin
       (display "Rebuilding s7.o...\n")
-      (if (not (nob.cmd-run `("gcc" "-O2" "-march=native" "-Wall" "-c" "s7/s7.c" "-o" ,(append-builddir "s7.o"))))
+      (if (not (nob.cmd-run `("gcc" "-O2" "-march=native" "-Wall" "-c" "src/s7/s7.c" "-o" ,(append-builddir "s7.o"))))
           (error "Failed to compile s7.o")))
     (display "s7.o is up to date.\n"))
 
 ;; 2. Compile main.o
-(if (nob.needs-rebuild? (append-builddir "main.o") "main.c")
+(if (nob.needs-rebuild? (append-builddir "main.o") "src/main.c")
     (begin
       (display "Rebuilding main.o...\n")
       (let ((args (append `("gcc" "-O2" "-march=native" "-Wall")
                           (split-string-by-spaces ffi-cflags)
-                          `(,(format #f "-DHASHVER=\"~A\"" git-hash) "-c" "main.c" "-o" ,(append-builddir "main.o")))))
+                          `(,(format #f "-DHASHVER=\"~A\"" git-hash) "-c" "src/main.c" "-o" ,(append-builddir "main.o")))))
         (if (not (nob.cmd-run args))
             (error "Failed to compile main.o"))))
     (display "main.o is up to date.\n"))
