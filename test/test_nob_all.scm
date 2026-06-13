@@ -1,4 +1,4 @@
-(load "libnob.scm")
+(use "stdlib/libnob")
 
 ;; 1. Test String Views
 (display "=== Testing String Views ===\n")

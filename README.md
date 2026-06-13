@@ -93,6 +93,20 @@ Inside your script:
 ;; Output: ("arg1" "arg2" "hello world")
 ```
 
+### 4. Module System (`use`)
+To easily structure your code, `lext` includes a module loading system. You can specify directories where modules are stored using the `LEXT_HOME` environment variable (using a colon `:` as a path separator).
+
+The `use` function locates and loads the `lib.scm` script inside the specified module subdirectory (i.e. `LEXT_HOME/<module>/lib.scm`). It tracks loaded modules using a high-performance `MeowHash` hash table to prevent reloading the same module multiple times.
+
+You can load a single module or multiple modules in a single variadic call:
+```scheme
+;; Load basic and libnob modules from LEXT_HOME search paths
+(use "libnob" "basic")
+```
+
+- **Arguments**: One or more strings or symbols representing module names.
+- **Environment Variable**: `LEXT_HOME` must be set to the directory containing the module subdirectories.
+
 ---
 
 ## FFI API Reference

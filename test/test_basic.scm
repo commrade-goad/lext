@@ -1,5 +1,4 @@
-(load "libnob.scm")
-(load "basic.scm")
+(use "stdlib/libnob" "stdlib/basic")
 
 (display "=== 1. Testing Type Translation & Declarations ===\n")
 (display (format #f "Translated (* t): ~A\n" (translate-ffi-type '(* t))))

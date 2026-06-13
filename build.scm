@@ -1,4 +1,5 @@
-(load "stdlib/libnob.scm")
+(use "stdlib/libnob")
+
 
 (define build-dir "build")
 

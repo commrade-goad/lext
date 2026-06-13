@@ -2,8 +2,15 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#if !defined(_WIN32)
+#include <unistd.h>
+#endif
 #include "s7/s7.h"
 #include "helpa.h"
+
+#define MeowHash meow_hash_impl
+#include "meow_hash_x64_aesni.h"
+#undef MeowHash
 
 #define VERSTRING  "1.1.0"
 #ifndef HASHVER
@@ -24,6 +31,154 @@
 
 #include <dlfcn.h>
 #include <ffi.h>
+
+typedef meow_u128 MeowHash;
+
+typedef struct MeowHashNode {
+    MeowHash key;
+    void *val;
+    struct MeowHashNode *next;
+} MeowHashNode;
+
+typedef struct {
+    MeowHashNode *buckets[1024];
+} MeowHashTable;
+
+static MeowHashTable *loaded_modules;
+
+static MeowHashTable *meow_hash_table_new(void) {
+    return (MeowHashTable *)calloc(1, sizeof(MeowHashTable));
+}
+
+static void *meow_hash_table_get(MeowHashTable *t, MeowHash key) {
+    if (!t) return NULL;
+    uint64_t hash64 = MeowU64From(key, 0);
+    size_t idx = hash64 % 1024;
+    MeowHashNode *node = t->buckets[idx];
+    while (node) {
+        if (MeowHashesAreEqual(node->key, key)) {
+            return node->val;
+        }
+        node = node->next;
+    }
+    return NULL;
+}
+
+static void meow_hash_table_set(MeowHashTable *t, MeowHash key, void *val) {
+    if (!t) return;
+    uint64_t hash64 = MeowU64From(key, 0);
+    size_t idx = hash64 % 1024;
+    MeowHashNode *node = t->buckets[idx];
+    while (node) {
+        if (MeowHashesAreEqual(node->key, key)) {
+            node->val = val;
+            return;
+        }
+        node = node->next;
+    }
+    node = (MeowHashNode *)malloc(sizeof(MeowHashNode));
+    node->key = key;
+    node->val = val;
+    node->next = t->buckets[idx];
+    t->buckets[idx] = node;
+}
+
+static MeowHash meow_hash_string(const char *str) {
+    if (!str) str = "";
+    return meow_hash_impl(MeowDefaultSeed, strlen(str), (void *)str);
+}
+
+typedef struct {
+    HStrView *dt;
+    size_t   sz;
+    size_t   cp;
+} ArrHsv;
+
+void split_string_to_arrhstr(ArrHsv *a, const char *str, char c) {
+    size_t len = strlen(str);
+    size_t j = 0;
+    for (size_t i = 0; i <= len; i++) {
+        if (str[i] == c || str[i] == '\0') {
+            if (i > j) {
+                HStrView view = { .dt = (const u8 *)&str[j], .sz = i - j };
+                helpa_da_append(*a, view);
+            }
+            j = i + 1;
+        }
+    }
+}
+
+static s7_pointer builtin_use_lib(s7_scheme *sc, s7_pointer args)
+{
+    const char *env = getenv("LEXT_HOME");
+    if (!env)
+        return s7_error(sc,
+                        s7_make_symbol(sc, "env-error"),
+                        s7_make_string(sc, "LEXT_HOME is not set"));
+
+    s7_pointer curr = args;
+    while (s7_is_pair(curr)) {
+        s7_pointer lib = s7_car(curr);
+        const char *lib_str = NULL;
+        if (s7_is_string(lib)) {
+            lib_str = s7_string(lib);
+        } else if (s7_is_symbol(lib)) {
+            lib_str = s7_symbol_name(lib);
+        } else {
+            return s7_error(sc,
+                            s7_make_symbol(sc, "use-error"),
+                            s7_make_string(sc, "module name must be a string or symbol"));
+        }
+
+        ArrHsv paths = {0};
+        split_string_to_arrhstr(&paths, env, ':');
+        HStr path = {0};
+        bool loaded = false;
+
+        for (size_t i = 0; i < paths.sz; i++) {
+            HStrView current = paths.dt[i];
+            hstr_clear(&path);
+            hstr_printf(&path, "%.*s/%s/lib.scm", (int)current.sz, (const char *)current.dt, lib_str);
+            int exist =
+        #if _WIN32
+                GetFileAttributesA((const char *)path.dt) != INVALID_FILE_ATTRIBUTES;
+        #else
+                access((const char *)path.dt, F_OK) == 0;
+        #endif
+
+            if (exist) {
+                MeowHash key = meow_hash_string(lib_str);
+                if (meow_hash_table_get(loaded_modules, key)) {
+                    loaded = true;
+                    break;
+                } else {
+                    meow_hash_table_set(loaded_modules, key, (void*)1);
+                }
+
+                s7_load(sc, (const char *)path.dt);
+                loaded = true;
+                break;
+            }
+        }
+
+        hstr_free(&path);
+        helpa_da_free(paths);
+
+        if (!loaded) {
+            HStr err_msg = {0};
+            hstr_printf(&err_msg, "module '%s' not found in LEXT_HOME", lib_str);
+            s7_pointer err = s7_error(sc,
+                                      s7_make_symbol(sc, "use-error"),
+                                      s7_make_string(sc, (const char *)err_msg.dt));
+            hstr_free(&err_msg);
+            return err;
+        }
+
+        curr = s7_cdr(curr);
+    }
+
+    return s7_unspecified(sc);
+}
 
 static s7_pointer ffi_open(s7_scheme *sc, s7_pointer args) {
     s7_pointer path_arg = s7_car(args);
@@ -1420,9 +1575,14 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
+    loaded_modules = meow_hash_table_new();
+
     // Register FFI bindings
     s7_define_variable(s7, "*ffi-types*", s7_nil(s7));
     s7_eval_c_string(s7, "(define (ffi-typedef name type-desc) (set! *ffi-types* (cons (cons name type-desc) *ffi-types*)))");
+
+    s7_define_function(s7, "use", builtin_use_lib, 1, 0, true, "(use) loads lib.scm file from LEXT_HOME env");
+
     s7_define_function(s7, "ffi-open", ffi_open, 1, 0, false, "(ffi-open path) loads dynamic library");
     s7_define_function(s7, "ffi-sym", ffi_sym, 2, 0, false, "(ffi-sym handle name) finds symbol in library");
     s7_define_function(s7, "ffi-close", ffi_close, 1, 0, false, "(ffi-close handle) closes dynamic library");

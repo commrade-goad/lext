@@ -1,6 +1,5 @@
 ;;;; nob_demo.scm - Comprehensive Demonstration of basic.scm and libnob.scm
-(load "libnob.scm")
-(load "basic.scm")
+(use "stdlib/libnob" "stdlib/basic")
 
 (display "=========================================================\n")
 (display "         lext FFI & basic.scm Dev Kit Showcase\n")
