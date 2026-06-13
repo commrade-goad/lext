@@ -109,6 +109,46 @@ You can load a single module or multiple modules in a single variadic call:
 
 ---
 
+## Standard Library Modules
+
+`lext` ships with a set of modular libraries under the `stdlib` directory.
+
+### 1. `basic` Module (`stdlib/basic`)
+Loaded via `(use "basic")`. Typically, you would open its namespace globally using `(open-namespace "bc.")`.
+
+#### **Loop Constructs**
+The module provides convenient imperative loops:
+* **`while`**:
+  ```scheme
+  (while (< i 5)
+    (display i)
+    (set! i (+ i 1)))
+  ```
+* **`for`**:
+  - Range syntax: `(for (var start end [step]) body ...)` (end is exclusive).
+  ```scheme
+  ;; Incrementing by 1: 0, 1, 2, 3, 4
+  (for (i 0 5) (display i))
+
+  ;; Stepping: 10, 8, 6, 4, 2
+  (for (i 10 0 -2) (display i))
+  ```
+* **`foreach`**:
+  - Iterates over elements of a list: `(foreach (var list) body ...)`
+  ```scheme
+  (foreach (x '(apple orange banana))
+    (display x))
+  ```
+
+#### **Built-in Hash Table Support**
+The underlying `s7` engine features native, high-performance hash tables. You do not need external libraries for hash map operations. Built-in procedures include:
+* `(make-hash-table [size])` - Creates a new hash table.
+* `(hash-table-set! table key value)` - Associates key with value in table.
+* `(hash-table-ref table key)` - Retrieves value associated with key.
+* `(hash-table? obj)` - Returns `#t` if the object is a hash table.
+
+---
+
 ## FFI API Reference
 
 ### Library & Symbol Management

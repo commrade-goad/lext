@@ -74,3 +74,23 @@
 (display (format #f "Outside use-namespace, log is defined: ~A\n" (defined? 'log)))
 (display (format #f "Outside use-namespace, cmd-new is defined: ~A\n" (defined? 'cmd-new)))
 
+(display "\n=== 8. Testing while, for, foreach Loop Constructs ===\n")
+(display "Testing while:\n")
+(let ((i 0))
+  (while (< i 5)
+    (display (format #f "  while: ~A\n" i))
+    (set! i (+ i 1))))
+
+(display "Testing for (range 0 to 5):\n")
+(for (i 0 5)
+  (display (format #f "  for: ~A\n" i)))
+
+(display "Testing for with step (10 to 0 step -2):\n")
+(for (i 10 0 -2)
+  (display (format #f "  for-step: ~A\n" i)))
+
+(display "Testing foreach:\n")
+(foreach (x '(apple orange banana))
+  (display (format #f "  foreach: ~A\n" x)))
+
+

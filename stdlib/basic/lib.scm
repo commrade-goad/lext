@@ -109,6 +109,9 @@
 (c-import bc.free                     internal-basic-libc "free"   void    (pointer))
 (c-import bc.realloc                  internal-basic-libc "realloc" pointer (pointer ulong))
 
+(define (bc.calloc nmemb size)
+  (lext-calloc nmemb size))
+
 (define (internal-basic-c-memcpy dest src byte-count)
   (internal-basic-c-memcpy-raw (if (internal-basic-tptr? dest) (internal-basic-tptr-ptr dest) dest)
                                (if (internal-basic-tptr? src) (internal-basic-tptr-ptr src) src)
@@ -294,18 +297,8 @@
 (define-macro (with-c-string var-str . body)
   (let ((var (car var-str))
         (str-expr (cadr var-str))
-        (str (gensym))
-        (len (gensym))
         (ptr (gensym)))
-    `(let* ((,str ,str-expr)
-            (,len (string-length ,str))
-            (,ptr (bc.malloc (+ ,len 1))))
-       (let loop ((i 0))
-         (if (< i ,len)
-             (begin
-               (ffi-set! (internal-basic-ptr+ ,ptr i) 'char (char->integer (string-ref ,str i)))
-               (loop (+ i 1)))))
-       (ffi-set! (internal-basic-ptr+ ,ptr ,len) 'char 0)
+    `(let* ((,ptr (lext-string->c-string ,str-expr)))
        (dynamic-wind
          (lambda () #f)
          (lambda ()
@@ -377,46 +370,13 @@
            (bc.free ,ptr))))))
 
 ;; --- Capturing Engine ---
-(c-import internal-basic-c-fflush  internal-basic-libc "fflush"  int     (pointer))
-(c-import internal-basic-c-dup     internal-basic-libc "dup"     int     (int))
-(c-import internal-basic-c-dup2    internal-basic-libc "dup2"    int     (int int))
-(c-import internal-basic-c-close   internal-basic-libc "close"   int     (int))
-(c-import internal-basic-c-tmpfile internal-basic-libc "tmpfile" pointer ())
-(c-import internal-basic-c-fileno  internal-basic-libc "fileno"  int     (pointer))
-(c-import internal-basic-c-rewind  internal-basic-libc "rewind"  void    (pointer))
-(c-import internal-basic-c-fclose  internal-basic-libc "fclose"  int     (pointer))
-(c-import internal-basic-c-fgetc   internal-basic-libc "fgetc"   int     (pointer))
+;; Use native lext-capture-output builtin (item #2).
+;; The old c-import lines for fflush/dup/dup2/close/tmpfile/fileno/rewind/fclose/fgetc
+;; are no longer needed here since everything is done in C.
 
 (define-macro (capture . body)
-  (let ((saved (gensym))
-        (tmp (gensym))
-        (fd (gensym))
-        (str (gensym))
-        (char (gensym))
-        (chars (gensym)))
-    `(begin
-       (internal-basic-c-fflush ())
-       (let* ((,saved (internal-basic-c-dup 1))
-              (,tmp (internal-basic-c-tmpfile))
-              (,fd (internal-basic-c-fileno ,tmp)))
-         (internal-basic-c-dup2 ,fd 1)
-         (dynamic-wind
-           (lambda () #f)
-           (lambda ()
-             ,@body)
-           (lambda ()
-             (internal-basic-c-fflush ())
-             (internal-basic-c-dup2 ,saved 1)
-             (internal-basic-c-close ,saved)))
-         (internal-basic-c-rewind ,tmp)
-         (let* ((,chars '()))
-           (let loop ((,char (internal-basic-c-fgetc ,tmp)))
-             (if (not (= ,char -1))
-                 (begin
-                   (set! ,chars (cons (integer->char ,char) ,chars))
-                   (loop (internal-basic-c-fgetc ,tmp)))))
-           (internal-basic-c-fclose ,tmp)
-           (list->string (reverse ,chars)))))))
+  `(lext-capture-output (lambda () ,@body)))
+
 
 ;; --- Common Helper Functions ---
 (define (bc.null-ptr? x)
@@ -432,30 +392,77 @@
   (let ((ptr (if (internal-basic-tptr? x) (internal-basic-tptr-ptr x) x)))
     (if (bc.null-ptr? ptr)
         ""
-        (let ((chars '()))
-          (let loop ((i 0))
-            (let ((char-val (ffi-deref (internal-basic-ptr+ ptr i) 'char)))
-              (if (not (= char-val 0))
-                  (begin
-                    (set! chars (cons (integer->char char-val) chars))
-                    (loop (+ i 1))))))
-          (list->string (reverse chars))))))
+        (lext-c-string-from-ptr ptr))))
 
 (define (c-string-array->list tp)
-  (let* ((ptr (if (internal-basic-tptr? tp) (internal-basic-tptr-ptr tp) tp))
-         (psize (c-size 'pointer)))
+  (let ((ptr (if (internal-basic-tptr? tp) (internal-basic-tptr-ptr tp) tp)))
     (if (bc.null-ptr? ptr)
         '()
-        (let loop ((i 0) (res '()))
-          (let ((sptr (ffi-deref (internal-basic-ptr+ ptr (* i psize)) 'pointer)))
-            (if (bc.null-ptr? sptr)
-                (reverse res)
-                (loop (+ i 1) (cons (c-string-from-ptr sptr) res))))))))
+        (lext-c-string-array->list ptr))))
 
 (define (bc.c-cast tp target-type)
   (if (internal-basic-tptr? tp)
       (internal-basic-tptr target-type (internal-basic-tptr-ptr tp))
       (internal-basic-tptr target-type tp)))
+
+;; --- Tracked (bounds-checked) allocation helpers (#7) ---
+(define (bc.malloc-tracked size) (lext-malloc-tracked size))
+(define (bc.free-tracked ptr) (lext-free-tracked ptr))
+(define (bc.bounds-check ptr size) (lext-bounds-check ptr size))
+
+;; --- Loop Constructs (while, foreach, for) ---
+(define-macro (bc.while cond . body)
+  (let ((loop (gensym)))
+    `(let ,loop ()
+       (if ,cond
+           (begin
+             ,@body
+             (,loop))))))
+
+(define-macro (bc.foreach clause . body)
+  (let ((var (car clause))
+        (lst (cadr clause))
+        (loop (gensym))
+        (curr (gensym)))
+    `(let ,loop ((,curr ,lst))
+       (if (not (null? ,curr))
+           (let ((,var (car ,curr)))
+             ,@body
+             (,loop (cdr ,curr)))))))
+
+(define-macro (bc.for clause . body)
+  (cond
+    ;; Range style: (for (var start end))
+    ((and (list? clause) (= (length clause) 3))
+     (let ((var (car clause))
+           (start (cadr clause))
+           (end (caddr clause))
+           (loop (gensym))
+           (limit (gensym)))
+       `(let ((,limit ,end))
+          (let ,loop ((,var ,start))
+            (if (< ,var ,limit)
+                (begin
+                  ,@body
+                  (,loop (+ ,var 1))))))))
+    ;; Range style with step: (for (var start end step))
+    ((and (list? clause) (= (length clause) 4))
+     (let ((var (car clause))
+           (start (cadr clause))
+           (end (caddr clause))
+           (step (cadddr clause))
+           (loop (gensym))
+           (limit (gensym))
+           (incr (gensym)))
+       `(let ((,limit ,end)
+              (,incr ,step))
+          (let ,loop ((,var ,start))
+            (if (if (> ,incr 0) (< ,var ,limit) (> ,var ,limit))
+                (begin
+                  ,@body
+                  (,loop (+ ,var ,incr))))))))
+    (else
+     (error "invalid for syntax" clause))))
 
 ;; --- Namespace Stripper & Importer Utilities ---
 (define *protected-symbols* '(set! = + - * / < > <= >=))

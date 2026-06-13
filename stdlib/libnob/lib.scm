@@ -1,6 +1,13 @@
 (use "stdlib/basic")
 (define internal-libnob (ffi-open #f))
 
+(define (internal-nob-struct-val val type)
+  (cond
+    ((c-pointer? val) (ffi-deref val type))
+    ((and (pair? val) (c-pointer? (cdr val))) (ffi-deref (cdr val) type))
+    (else val)))
+
+
 (define-macro (internal-libnob-c-import scheme-name lib-handle c-name ret-type arg-types . nfixed)
   (let ((func-ptr (gensym)))
     `(begin
@@ -363,9 +370,8 @@
 (define (nob.proc-wait proc)
   (not (= (internal-nob-proc-wait proc) 0)))
 
-;; nob.procs-wait: wait for dynamic array of processes (by value)
 (define (nob.procs-wait procs)
-  (not (= (internal-nob-procs-wait procs) 0)))
+  (not (= (internal-nob-procs-wait (internal-nob-struct-val procs 'Nob_Procs)) 0)))
 
 ;; nob.procs-flush: wait for all processes in procs (by pointer) and empty list
 (define (nob.procs-flush procs-ptr)
@@ -439,13 +445,9 @@
   (not (= (internal-nob-sv-ends-with-cstr sv cstr) 0)))
 
 (define (nob.sv->string sv)
-  (let* ((data (cdr (assoc 'data sv)))
+  (let* ((data  (cdr (assoc 'data sv)))
          (count (cdr (assoc 'count sv))))
-    (if (> count 0)
-        (let* ((bytes (ffi-deref data (list 'array 'char count)))
-               (chars (map integer->char bytes)))
-          (list->string chars))
-        "")))
+    (lext-sv->string count data)))
 
 ;; Temp Allocator wrappers
 (define (nob.temp-reset)
@@ -489,18 +491,7 @@
     (nob.da-update! da '() 0 0)))
 
 (define (nob.da-reserve da expected-capacity element-size)
-  (let* ((da-struct (nob.da-get da))
-         (items (cdr (assoc 'items da-struct)))
-         (count (cdr (assoc 'count da-struct)))
-         (capacity (cdr (assoc 'capacity da-struct))))
-    (if (> expected-capacity capacity)
-        (let* ((new-capacity (if (= capacity 0) 256 capacity))
-               (new-capacity (let loop ((cap new-capacity))
-                               (if (> expected-capacity cap)
-                                   (loop (* cap 2))
-                                   cap)))
-               (new-items (bc.realloc items (* new-capacity element-size))))
-          (nob.da-update! da new-items count new-capacity)))))
+  (lext-da-reserve da expected-capacity element-size))
 
 (define-macro (nob.da-append da item type)
   (let ((da-var (gensym))
@@ -612,7 +603,7 @@
 (define (nob.cmd-render cmd)
   (let ((sb (bc.malloc 24)))
     (ffi-set! sb 'Nob_String_Builder '((items . ()) (count . 0) (capacity . 0)))
-    (internal-nob-cmd-render (if (c-pointer? cmd) (ffi-deref cmd 'Nob_Cmd) cmd) sb)
+    (internal-nob-cmd-render (internal-nob-struct-val cmd 'Nob_Cmd) sb)
     (let* ((sb-struct (ffi-deref sb 'Nob_String_Builder))
            (items-ptr (cdr (assoc 'items sb-struct)))
            (count (cdr (assoc 'count sb-struct)))
@@ -626,52 +617,33 @@
       str)))
 
 (define (nob.cmd-run-async cmd)
-  (internal-nob-cmd-run-async (if (c-pointer? cmd) (ffi-deref cmd 'Nob_Cmd) cmd)))
+  (internal-nob-cmd-run-async (internal-nob-struct-val cmd 'Nob_Cmd)))
 
 (define (nob.cmd-run-async-and-reset cmd-ptr)
   (internal-nob-cmd-run-async-and-reset cmd-ptr))
 
 (define (nob.cmd-run-async-redirect cmd redirect)
-  (internal-nob-cmd-run-async-redirect (if (c-pointer? cmd) (ffi-deref cmd 'Nob_Cmd) cmd) redirect))
+  (internal-nob-cmd-run-async-redirect (internal-nob-struct-val cmd 'Nob_Cmd)
+                                       (internal-nob-struct-val redirect 'Nob_Cmd_Redirect)))
 
 (define (nob.cmd-run-async-redirect-and-reset cmd-ptr redirect)
-  (internal-nob-cmd-run-async-redirect-and-reset cmd-ptr redirect))
+  (internal-nob-cmd-run-async-redirect-and-reset cmd-ptr
+                                                 (internal-nob-struct-val redirect 'Nob_Cmd_Redirect)))
 
 (define (nob.cmd-run-sync cmd)
-  (not (= (internal-nob-cmd-run-sync (if (c-pointer? cmd) (ffi-deref cmd 'Nob_Cmd) cmd)) 0)))
+  (not (= (internal-nob-cmd-run-sync (internal-nob-struct-val cmd 'Nob_Cmd)) 0)))
 
 (define (nob.cmd-run-sync-and-reset cmd-ptr)
   (not (= (internal-nob-cmd-run-sync-and-reset cmd-ptr) 0)))
 
 (define (nob.cmd-run-sync-redirect cmd redirect)
-  (not (= (internal-nob-cmd-run-sync-redirect (if (c-pointer? cmd) (ffi-deref cmd 'Nob_Cmd) cmd) redirect) 0)))
+  (not (= (internal-nob-cmd-run-sync-redirect (internal-nob-struct-val cmd 'Nob_Cmd)
+                                              (internal-nob-struct-val redirect 'Nob_Cmd_Redirect)) 0)))
 
 (define (nob.cmd-run-sync-redirect-and-reset cmd-ptr redirect)
-  (not (= (internal-nob-cmd-run-sync-redirect-and-reset cmd-ptr redirect) 0)))
+  (not (= (internal-nob-cmd-run-sync-redirect-and-reset cmd-ptr
+                                                        (internal-nob-struct-val redirect 'Nob_Cmd_Redirect)) 0)))
 
-;; --- Pure-Scheme Directory Walker ---
-;; Equivalent of nob_walk_dir / nob_walk_dir_opt
+;; --- Directory Walker (native C) ---
 (define* (nob.walk-dir root func (level 0))
-  (let ((files (nob.read-entire-dir root)))
-    (if files
-        (let loop ((curr files))
-          (if (not (null? curr))
-              (let* ((file (car curr))
-                     (path (if (or (string=? root ".") (string=? root "./"))
-                               file
-                               (string-append root "/" file))))
-                (if (and (not (string=? file ".")) (not (string=? file "..")))
-                    (let* ((type (nob.get-file-type path))
-                           (continue (func path type level)))
-                      (if continue
-                          (begin
-                            (if (eq? type 'directory)
-                                (let ((sub-continue (nob.walk-dir path func (+ level 1))))
-                                  (if sub-continue
-                                      (loop (cdr curr))
-                                      #f))
-                                (loop (cdr curr))))
-                          #f))
-                    (loop (cdr curr))))
-              #t))
-        #f)))
+  (lext-walk-dir root func level))

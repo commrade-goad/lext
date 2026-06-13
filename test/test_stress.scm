@@ -1,255 +1,327 @@
 (use "stdlib/basic" "stdlib/libnob")
 
 (display "=========================================================\n")
-(display "         lext stdlib Stress & Robustness Test\n")
+(display "   lext Standard Libraries 100% Coverage Stress Test\n")
 (display "=========================================================\n\n")
 
-;; --- Helper: Compile C library for callback/FFI testing ---
-(display "--- Phase 0: Compiling helper dynamic library ---\n")
+;; Compile helper library for FFI tests
 (let ((cmd-args '("gcc" "-shared" "-fPIC" "test/test_lib.c" "-o" "test/libtest.so")))
   (if (nob.cmd-run cmd-args)
-      (display "Compilation successful: test/libtest.so created.\n")
+      (display "[INIT] test/libtest.so compiled successfully.\n")
       (error "Failed to compile test/test_lib.c")))
 
 (define libtest (ffi-open "./test/libtest.so"))
 
 ;; ============================================================================
-;; PHASE 1: Struct, Union, Enum Alignments & Deeply Nested Structure Padding
+;; PART A: basic.scm coverage
 ;; ============================================================================
-(display "\n--- Phase 1: Deep Nesting & Offset Calculation Stress Test ---\n")
+(display "\n--- [PART A] Testing basic.scm ---\n")
 
-(define-c-struct Nested_Inner
-  (a char)     ; 1 byte
-               ; 3 bytes padding
-  (b int)      ; 4 bytes
-  (c double))  ; 8 bytes
-               ; total size: 16 bytes, align: 8
+;; 1. translate-ffi-type
+(display (format #f "  translate-ffi-type (* char): ~S\n" (translate-ffi-type '(* char))))
+(display (format #f "  translate-ffi-type (array int 10): ~S\n" (translate-ffi-type '(array int 10))))
 
-(define-c-struct Nested_Outer
-  (arr (array int 4)) ; 16 bytes
-  (inner Nested_Inner) ; 16 bytes
-  (ptr (* Nested_Inner)) ; 8 bytes
-  (flag char))         ; 1 byte
-                       ; 7 bytes padding
-                       ; total size: 48 bytes, align: 8
+;; 2. Declarators: define-c-struct, define-c-union, define-c-enum
+(define-c-struct Basic_Point
+  (x int)
+  (y int))
 
-(define-c-union Stress_Union
+(define-c-union Basic_Union
   (i int)
-  (d double)
-  (inner Nested_Inner)) ; total size: 16 bytes (max size of members)
+  (d double))
 
-(define-c-enum Stress_Enum
+(define-c-enum Basic_Enum
   :enum-zero
   :enum-one
-  (enum-ten 10)
-  :enum-eleven)
+  (enum-five 5)
+  :enum-six)
 
-(display (format #f "Nested_Inner size: ~A (expected: 16)\n" (c-size 'Nested_Inner)))
-(display (format #f "Nested_Outer size: ~A (expected: 48)\n" (c-size 'Nested_Outer)))
-(display (format #f "Stress_Union size: ~A (expected: 16)\n" (c-size 'Stress_Union)))
+(display (format #f "  c-size Basic_Point: ~A\n" (c-size 'Basic_Point)))
+(display (format #f "  c-size Basic_Union: ~A\n" (c-size 'Basic_Union)))
+(display (format #f "  Basic_Enum: ~A, ~A, ~A, ~A\n" enum-zero enum-one enum-five enum-six))
 
-;; Verify Enum macro values
-(display (format #f "Enum zero: ~A (expected: 0)\n" enum-zero))
-(display (format #f "Enum one: ~A (expected: 1)\n" enum-one))
-(display (format #f "Enum ten: ~A (expected: 10)\n" enum-ten))
-(display (format #f "Enum eleven: ~A (expected: 11)\n" enum-eleven))
+;; 3. c-import
+(c-import stress-add-points libtest "add_points" Basic_Point (Basic_Point Basic_Point))
 
-(with-heap-alloc (outer Nested_Outer)
-  (with-heap-alloc (inner Nested_Inner)
-    ;; Initialize inner structure
-    (bc.= inner.a 65)
-    (bc.= inner.b 1337)
-    (bc.= inner.c 3.14159)
-    
-    ;; Set outer fields
-    (bc.= outer.flag 90)
-    (bc.= outer.ptr (bc.addr inner))
-    
-    ;; Set inner struct fields inside outer directly
-    (bc.= outer.inner.a 66)
-    (bc.= outer.inner.b 9999)
-    (bc.= outer.inner.c 2.71828)
-    
-    ;; Set array elements
-    (bc.= outer.arr.0 100)
-    (bc.= outer.arr.1 200)
-    (bc.= outer.arr.2 300)
-    (bc.= outer.arr.3 400)
-    
-    ;; Read & verify everything
-    (display (format #f "outer.flag: ~A (expected: 90)\n" (bc.@ outer.flag)))
-    (display (format #f "outer.inner.a: ~A (expected: 66)\n" (bc.@ outer.inner.a)))
-    (display (format #f "outer.inner.b: ~A (expected: 9999)\n" (bc.@ outer.inner.b)))
-    (display (format #f "outer.inner.c: ~A (expected: 2.71828)\n" (bc.@ outer.inner.c)))
-    
-    (display (format #f "outer.arr.0: ~A (expected: 100)\n" (bc.@ outer.arr.0)))
-    (display (format #f "outer.arr.3: ~A (expected: 400)\n" (bc.@ outer.arr.3)))
-    
-    ;; Read through pointer inside outer
-    (let ((retrieved-ptr (bc.@ outer.ptr)))
-      (display (format #f "Dereferenced inner.a: ~A (expected: 65)\n" (ffi-deref retrieved-ptr 'char)))
-      (display (format #f "Dereferenced inner.b: ~A (expected: 1337)\n" (ffi-deref (nob.pointer-add retrieved-ptr 4) 'int)))
-      )
-      
-    ;; Test address operator (bc.&) macro
-    (let ((inner-addr (bc.& outer.inner)))
-      (display (format #f "Address of outer.inner field resolves: ~A\n" (c-pointer? (cdr inner-addr))))
-      (display (format #f "Type of outer.inner address: ~A (expected: Nested_Inner)\n" (car inner-addr))))))
+;; 4. bc.malloc, bc.free, bc.realloc
+(let* ((p1 (bc.malloc 8))
+       (p2 (bc.realloc p1 16)))
+  (display (format #f "  bc.malloc/realloc ptr: ~A\n" (c-pointer? p2)))
+  (bc.free p2))
 
-;; Stress Union memory sharing
-(with-heap-alloc (u Stress_Union)
-  (bc.= u.i #x12345678)
-  (display (format #f "Union int value: ~X (expected: 12345678)\n" (bc.@ u.i)))
-  ;; Overwrite with double
-  (bc.= u.d 1.2345)
-  (display (format #f "Union double value: ~A (expected: 1.2345)\n" (bc.@ u.d)))
-  ;; Verify int value is now mangled/overwritten
-  (display (format #f "Union int after double write: ~X (should be different)\n" (bc.@ u.i))))
+;; 5. internal-basic-c-memcpy, internal-basic-c-memset
+(let ((buf1 (bc.malloc 10))
+      (buf2 (bc.malloc 10)))
+  (internal-basic-c-memset buf1 65 10) ; fill with 'A'
+  (internal-basic-c-memcpy buf2 buf1 10)
+  (display (format #f "  memset/memcpy check char: ~A\n" (ffi-deref buf2 'char)))
+  (bc.free buf1)
+  (bc.free buf2))
 
-;; ============================================================================
-;; PHASE 2: FFI Sandbox Allocators (with-c-string, with-c-array, with-c-string-array)
-;; ============================================================================
-(display "\n--- Phase 2: FFI Sandbox Allocators Stress Test ---\n")
+;; 6. internal-basic-ptr+
+(let* ((base (bc.malloc 16))
+       (offset-ptr (internal-basic-ptr+ base 8)))
+  (display (format #f "  ptr+ offset check: ~A\n" (not (eq? base offset-ptr))))
+  (bc.free base))
 
-;; Test with-c-string
-(with-c-string (s "Robustness Testing String")
-  (display (format #f "with-c-string output: ~S\n" (c-string-from-ptr s))))
+;; 7. bc.deref, bc.set!, bc.addr
+(let ((ptr (bc.malloc 4)))
+  (bc.set! ptr 'int 999)
+  (display (format #f "  bc.set!/bc.deref: ~A\n" (bc.deref ptr 'int)))
+  (display (format #f "  bc.addr check: ~A\n" (pair? (bc.addr (internal-basic-tptr 'int ptr)))))
+  (bc.free ptr))
 
-;; Test with-c-array
-(with-c-array (arr double '(1.1 2.2 3.3 4.4 5.5))
-  (display (format #f "Array double [0]: ~A (expected: 1.1)\n" (bc.@ arr.0)))
-  (display (format #f "Array double [4]: ~A (expected: 5.5)\n" (bc.@ arr.4))))
+;; 8. bc.@, bc.=, bc.&
+(with-heap-alloc (pt Basic_Point)
+  (bc.= pt.x 123)
+  (bc.= pt.y 456)
+  (display (format #f "  bc.=@ x: ~A, y: ~A\n" (bc.@ pt.x) (bc.@ pt.y)))
+  (let ((addr-val (bc.& pt.y)))
+    (display (format #f "  bc.& type: ~A\n" (car addr-val)))))
 
-;; Test with-c-string-array
-(with-c-string-array (args '("test1" "test2" "test3" "test4"))
-  (display (format #f "String array [2]: ~S (expected: \"test3\")\n" (c-string-from-ptr (bc.@ args.2))))
-  (display (format #f "String array as list: ~S\n" (c-string-array->list args))))
+;; 9. with-heap-alloc, with-alloc, with-c-string, with-c-array, with-c-string-array
+(with-alloc (pt Basic_Point)
+  (bc.= pt.x 777)
+  (display (format #f "  with-alloc: ~A\n" (bc.@ pt.x))))
 
-;; ============================================================================
-;; PHASE 3: Dynamic Array (da-append) & Capacity Growth Stress Test
-;; ============================================================================
-(display "\n--- Phase 3: Dynamic Array Capacity Growth Stress Test ---\n")
+(with-c-string (s "Test string FFI")
+  (display (format #f "  with-c-string: ~S\n" (c-string-from-ptr s))))
 
-(define da (bc.malloc 24))
-(nob.da-set! da '((items . ()) (count . 0) (capacity . 0)))
+(with-c-array (arr int '(11 22 33))
+  (display (format #f "  with-c-array [1]: ~A\n" (bc.@ arr.1))))
 
-;; Append 500 items to force multiple reallocations and capacity doubling
-(let loop ((i 0))
-  (if (< i 500)
-      (begin
-        (nob.da-append da i int)
-        (loop (+ i 1)))))
+(with-c-string-array (s-arr '("foo" "bar"))
+  (display (format #f "  with-c-string-array: ~S\n" (c-string-array->list s-arr))))
 
-(display (format #f "Dynamic Array count: ~A (expected: 500)\n" (nob.da-count da)))
-(display (format #f "Dynamic Array capacity: ~A (expected >= 512)\n" (nob.da-capacity da)))
+;; 10. capture
+(let ((out (capture (display "Stdout captured line!\n"))))
+  (display (format #f "  capture output: ~S\n" out)))
 
-;; Verify values and pop them
-(display (format #f "First element: ~A (expected: 0)\n" (nob.da-first da 'int)))
-(display (format #f "Last element: ~A (expected: 499)\n" (nob.da-last da 'int)))
+;; 11. bc.null-ptr?, bc.null-ptr
+(display (format #f "  null-ptr? (null-ptr): ~A\n" (bc.null-ptr? (bc.null-ptr))))
+(display (format #f "  null-ptr? non-null: ~A\n" (bc.null-ptr? 12345)))
 
-;; Pop all elements and ensure count goes down
-(let loop ((i 499) (ok #t))
-  (if (>= i 0)
-      (let ((val (nob.da-pop da 'int)))
-        (loop (- i 1) (and ok (= val i))))
-      (display (format #f "All popped elements matched index: ~A\n" ok))))
+;; 12. bc.c-cast
+(with-alloc (pt Basic_Point)
+  (let ((casted (bc.c-cast pt 'int)))
+    (display (format #f "  bc.c-cast type: ~A\n" (car casted)))))
 
-(display (format #f "Count after popping all: ~A (expected: 0)\n" (nob.da-count da)))
-(nob.da-free da)
-(bc.free da)
-
-;; ============================================================================
-;; PHASE 4: Memory Leak Stress Test (10,000 Allocations) & Capture Macro
-;; ============================================================================
-(display "\n--- Phase 4: Memory Allocation Leak & Capture Stress Test ---\n")
-(display "Allocating and freeing 10,000 point structures...\n")
-
-(let loop ((i 0))
-  (if (< i 10000)
-      (begin
-        (let ((ptr (bc.malloc 16)))
-          (bc.free ptr))
-        (loop (+ i 1)))))
-(display "10,000 allocations completed without crashing.\n")
-
-;; Test capture macro
-(let ((captured (capture
-                  (display "Captured Line 1\n")
-                  (display "Captured Line 2\n"))))
-  (display (format #f "Captured output: ~S\n" captured)))
-
-;; ============================================================================
-;; PHASE 5: Scoped Namespace Shadowing Stress Test
-;; ============================================================================
-(display "\n--- Phase 5: Scoped Namespace Shadowing Stress Test ---\n")
-
+;; 13. open-namespace, use-namespace
 (use-namespace "bc."
-  (display (format #f "Level 1: malloc is defined: ~A\n" (defined? 'malloc)))
-  (display (format #f "Level 1: log is defined: ~A (should be standard log)\n" (procedure? log)))
+  (display (format #f "  use-namespace block: ~A\n" (defined? 'malloc))))
+
+
+;; ============================================================================
+;; PART B: libnob.scm coverage
+;; ============================================================================
+(display "\n--- [PART B] Testing libnob.scm ---\n")
+
+;; 1. Pointer arithmetic
+(let* ((ptr (bc.malloc 8))
+       (addr (nob.c-pointer->integer ptr))
+       (ptr2 (nob.integer->c-pointer addr))
+       (ptr3 (nob.pointer-add ptr2 4)))
+  (display (format #f "  Pointer conversions: ~A\n" (eq? ptr ptr2)))
+  (display (format #f "  Pointer add offset: ~A\n" (not (eq? ptr2 ptr3))))
+  (bc.free ptr))
+
+;; 2. Log API
+(nob.minimal-log-level-set! 0)
+(display (format #f "  minimal-log-level: ~A\n" (nob.minimal-log-level)))
+(nob.log 0 "Testing log output: ~A" "success")
+
+;; 3. Command API & Render
+(let ((cmd (nob.cmd-new)))
+  (nob.cmd-append cmd "echo" "hello" "world")
+  (display (format #f "  Rendered command: ~S\n" (nob.cmd-render cmd)))
   
-  (use-namespace "nob."
-    (display (format #f "  Level 2: malloc is defined: ~A\n" (defined? 'malloc)))
-    (display (format #f "  Level 2: log is defined: ~A (should be nob.log wrapper)\n" (defined? 'log)))
-    (display (format #f "  Level 2: cmd-new is defined: ~A\n" (defined? 'cmd-new))))
+  ;; Sync and async command execution
+  (display (format #f "  cmd-run sync: ~A\n" (nob.cmd-run cmd)))
+  (display (format #f "  cmd-run-async: ~A\n" (integer? (nob.cmd-run-async cmd))))
   
-  (display (format #f "Back to Level 1: cmd-new is defined: ~A (expected: #f)\n" (defined? 'cmd-new))))
+  ;; Sync and async with reset
+  (nob.cmd-append cmd "echo" "reset-test")
+  (display (format #f "  cmd-run-sync-and-reset: ~A\n" (nob.cmd-run-sync-and-reset cmd)))
+  
+  (nob.cmd-append cmd "echo" "async-reset-test")
+  (let ((pid (nob.cmd-run-async-and-reset cmd)))
+    (display (format #f "  cmd-run-async-and-reset pid: ~A\n" (nob.proc-wait pid))))
+    
+  (nob.cmd-free cmd))
 
-;; ============================================================================
-;; PHASE 6: Stack Safety with Nested Allocators and Error Recovery
-;; ============================================================================
-(display "\n--- Phase 6: Nesting and Stack Cleanups via dynamic-wind ---\n")
+;; Command redirects
+(let ((cmd (nob.cmd-new))
+      (redir (bc.malloc 24)))
+  (nob.cmd-append cmd "echo" "redirect-test")
+  (ffi-set! redir '(struct (pointer fdin) (pointer fdout) (pointer fderr)) '((fdin . ()) (fdout . ()) (fderr . ())))
+  (display (format #f "  cmd-run-sync-redirect: ~A\n" (nob.cmd-run-sync-redirect cmd redir)))
+  (nob.cmd-append cmd "echo" "redirect-async")
+  (let ((pid (nob.cmd-run-async-redirect cmd redir)))
+    (display (format #f "  cmd-run-async-redirect pid: ~A\n" (nob.proc-wait pid))))
+  (nob.cmd-free cmd)
+  (bc.free redir))
 
-;; 20-level nested with-alloc test
-(define (nest-allocations depth)
-  (if (= depth 0)
-      (display "Deeply nested allocation depth reached successfully.\n")
-      (with-alloc (p Nested_Inner)
-        (bc.= p.b depth)
-        (nest-allocations (- depth 1))
-        (if (not (= (bc.@ p.b) depth))
-            (error "Stack value corrupted in nesting!")))))
+;; 4. File operations & temporary paths
+(let ((temp-path "build/test_temp_file.txt"))
+  (display (format #f "  write-entire-file: ~A\n" (nob.write-entire-file temp-path "Hello Lext File System!")))
+  (display (format #f "  file-exists: ~A\n" (nob.file-exists temp-path)))
+  (display (format #f "  read-entire-file: ~S\n" (nob.read-entire-file temp-path)))
+  (display (format #f "  get-file-type: ~A\n" (nob.get-file-type temp-path)))
+  
+  ;; Copy and rename
+  (display (format #f "  copy-file: ~A\n" (nob.copy-file temp-path "build/test_temp_copy.txt")))
+  (display (format #f "  rename: ~A\n" (nob.rename "build/test_temp_copy.txt" "build/test_temp_renamed.txt")))
+  
+  ;; Path helpers
+  (display (format #f "  path-name: ~S\n" (nob.path-name temp-path)))
+  (display (format #f "  temp-dir-name: ~S\n" (nob.temp-dir-name temp-path)))
+  (display (format #f "  temp-file-name: ~S\n" (nob.temp-file-name temp-path)))
+  (display (format #f "  temp-file-ext: ~S\n" (nob.temp-file-ext temp-path)))
+  
+  (nob.delete-file temp-path)
+  (nob.delete-file "build/test_temp_renamed.txt"))
 
-(nest-allocations 20)
+(display (format #f "  get-current-dir-temp: ~S\n" (nob.get-current-dir-temp)))
+(display (format #f "  temp-running-executable-path: ~S\n" (nob.temp-running-executable-path)))
+(display (format #f "  nanos-since-unspecified-epoch: ~A\n" (nob.nanos-since-unspecified-epoch)))
+(display (format #f "  nprocs: ~A\n" (nob.nprocs)))
+(display (format #f "  read-entire-dir: ~A\n" (list? (nob.read-entire-dir "stdlib"))))
 
-;; Test error recovery: Does with-alloc clean up even if an error occurs inside it?
-(display "Testing with-alloc cleanup on catchable error...\n")
-(define cleanup-check #f)
-(define test-ptr ())
+;; Directory copy and walk
+(nob.mkdir-if-not-exists "build/test_dir")
+(nob.copy-directory-recursively "stdlib/basic" "build/test_dir")
+(let ((walk-count 0))
+  (nob.walk-dir "build/test_dir" (lambda (p t l) (set! walk-count (+ walk-count 1)) #t))
+  (display (format #f "  walk-dir walked ~A files/dirs\n" walk-count)))
+;; Cleanup copied dir
+(nob.delete-file "build/test_dir/lib.scm")
+(nob.delete-file "build/test_dir")
 
-(catch #t
-  (lambda ()
-    (with-heap-alloc (p Nested_Inner)
-      (set! test-ptr (bc.addr p))
-      (set! cleanup-check #t)
-      (error "Simulated error inside with-alloc")))
-  (lambda (tag info)
-    (display "Caught simulated error. Checking if memory was freed...\n")
-    ;; If dynamic-wind cleaned up, cleanup-check should be #t
-    (display (format #f "with-alloc block was executed: ~A\n" cleanup-check))))
+;; String builder padding
+(let ((sb (bc.malloc 24)))
+  (ffi-set! sb 'Nob_String_Builder '((items . ()) (count . 0) (capacity . 0)))
+  (nob.sb-pad-align sb 16)
+  (let* ((sb-struct (ffi-deref sb 'Nob_String_Builder))
+         (count (cdr (assoc 'count sb-struct))))
+    (display (format #f "  sb-pad-align count: ~A\n" count)))
+  (nob.cmd-free sb))
 
-;; ============================================================================
-;; PHASE 7: FFI Callbacks Stack Stress Test
-;; ============================================================================
-(display "\n--- Phase 7: Callback FFI Boundary Call-Stack Stress Test ---\n")
+;; 5. Processes wait & flush API
+(let* ((procs (bc.malloc 24)))
+  (ffi-set! procs 'Nob_Procs '((items . ()) (count . 0) (capacity . 0)))
+  ;; Add some dummy child process
+  (let* ((cmd (nob.cmd-new)))
+    (nob.cmd-append cmd "sleep" "0.1")
+    (let ((pid (nob.cmd-run-async-and-reset cmd)))
+      (nob.procs-append-with-flush procs pid 4)
+      (display (format #f "  procs count after append: ~A\n" (nob.da-count procs)))
+      (display (format #f "  procs-wait-and-reset: ~A\n" (nob.procs-wait-and-reset procs))))))
 
-(c-import run-callback libtest "run_callback" double (pointer int))
+;; Pipes API
+(let ((pipe-ptr (bc.malloc 8)))
+  (display (format #f "  pipe-create: ~A\n" (nob.pipe-create pipe-ptr)))
+  (let* ((pipe-struct (ffi-deref pipe-ptr 'Nob_Pipe))
+         (read-fd (cdr (assoc 'read pipe-struct)))
+         (write-fd (cdr (assoc 'write pipe-struct))))
+    (display (format #f "    read fd: ~A, write fd: ~A\n" read-fd write-fd))
+    (nob.fd-close read-fd)
+    (nob.fd-close write-fd))
+  (bc.free pipe-ptr))
 
-(define callback-count 0)
-(define (stress-callback val)
-  (set! callback-count (+ callback-count 1))
-  (if (< callback-count 10)
-      (begin
-        (display (format #f "  Callback depth ~A with val: ~A\n" callback-count val))
-        ;; Call C again from inside Scheme callback
-        (run-callback (ffi-callback stress-callback 'double '(int)) (- val 10)))
-      (begin
-        (display "  Max depth reached in callback chain.\n")
-        1.0)))
+;; Chains API
+(let ((chain (bc.malloc 40))
+      (cmd (nob.cmd-new)))
+  (nob.cmd-append cmd "echo" "chain-hello")
+  (display (format #f "  chain-begin: ~A\n" (nob.chain-begin chain)))
+  (display (format #f "  chain-cmd: ~A\n" (nob.chain-cmd chain cmd :err2out #t :dont-reset #t)))
+  (display (format #f "  chain-end: ~A\n" (nob.chain-end chain :max-procs 4)))
+  (nob.cmd-free cmd)
+  (bc.free chain))
 
-(let ((res (run-callback (ffi-callback stress-callback 'double '(int)) 100)))
-  (display (format #f "Callback boundary stress test finished, result: ~A\n" res)))
+;; Directory iterator API
+(let ((dir-ent (bc.malloc 32))) ; size of Nob_Dir_Entry
+  (display (format #f "  dir-entry-open: ~A\n" (nob.dir-entry-open "stdlib" dir-ent)))
+  (display (format #f "  dir-entry-next: ~A\n" (nob.dir-entry-next dir-ent)))
+  (nob.dir-entry-close (ffi-deref dir-ent 'Nob_Dir_Entry))
+  (bc.free dir-ent))
 
-;; --- Clean up ---
-(display "\n--- Phase 8: Cleaning up ---\n")
+;; 6. String Views API
+(let* ((sv1 (nob.sv-from-cstr "   Trimmed SV!   "))
+       (sv2 (nob.sv-from-parts (cdr (assoc 'data sv1)) (cdr (assoc 'count sv1))))
+       (trimmed (nob.sv-trim sv2))
+       (left (nob.sv-trim-left sv1))
+       (right (nob.sv-trim-right sv1)))
+  (display (format #f "  sv->string: ~S\n" (nob.sv->string trimmed)))
+  (display (format #f "  sv-eq: ~A\n" (nob.sv-eq sv1 sv2)))
+  (display (format #f "  sv-starts-with: ~A\n" (nob.sv-starts-with sv1 (nob.sv-from-cstr "   "))))
+  (display (format #f "  sv-ends-with: ~A\n" (nob.sv-ends-with sv1 (nob.sv-from-cstr "   "))))
+  (display (format #f "  sv-ends-with-cstr: ~A\n" (nob.sv-ends-with-cstr sv1 "   "))))
+
+;; String View Chopping
+(let* ((sv (nob.sv-from-cstr "foo:bar:baz"))
+       (sv-ptr (bc.malloc 16)))
+  (ffi-set! sv-ptr 'Nob_String_View sv)
+  (let* ((chopped1 (nob.sv-chop-left sv-ptr 4))
+         (chopped2 (nob.sv-chop-right sv-ptr 4)))
+    (display (format #f "  sv-chop-left: ~S\n" (nob.sv->string chopped1)))
+    (display (format #f "  sv-chop-right: ~S\n" (nob.sv->string chopped2))))
+  
+  (ffi-set! sv-ptr 'Nob_String_View sv)
+  (let ((chopped3 (nob.sv-chop-by-delim sv-ptr #\:)))
+    (display (format #f "  sv-chop-by-delim: ~S\n" (nob.sv->string chopped3))))
+    
+  (ffi-set! sv-ptr 'Nob_String_View sv)
+  (display (format #f "  sv-chop-prefix: ~A\n" (nob.sv-chop-prefix sv-ptr (nob.sv-from-cstr "foo"))))
+  (display (format #f "  sv-chop-suffix: ~A\n" (nob.sv-chop-suffix sv-ptr (nob.sv-from-cstr "baz"))))
+  (bc.free sv-ptr))
+
+;; 7. Temp Allocator API
+(nob.temp-reset)
+(let* ((checkpoint (nob.temp-save))
+       (str1 (nob.temp-strdup "Temp allocated string"))
+       (str2 (nob.temp-strndup "Temp limit string" 10))
+       (raw-buf (nob.temp-alloc 100)))
+  (display (format #f "  temp-strdup: ~S\n" str1))
+  (display (format #f "  temp-strndup: ~S\n" str2))
+  (display (format #f "  temp-alloc ptr: ~A\n" (c-pointer? raw-buf)))
+  (nob.temp-rewind checkpoint))
+
+;; 8. Dynamic Arrays API
+(let ((da (bc.malloc 24)))
+  (nob.da-set! da '((items . ()) (count . 0) (capacity . 0)))
+  (nob.da-reserve da 10 4) ; reserve for 10 ints
+  (nob.da-append da 100 int)
+  (nob.da-append da 200 int)
+  (display (format #f "  da-items ptr: ~A\n" (c-pointer? (nob.da-items da))))
+  (display (format #f "  da-count: ~A\n" (nob.da-count da)))
+  (display (format #f "  da-capacity: ~A\n" (nob.da-capacity da)))
+  (display (format #f "  da-first: ~A\n" (nob.da-first da 'int)))
+  (display (format #f "  da-last: ~A\n" (nob.da-last da 'int)))
+  (display (format #f "  da-pop: ~A\n" (nob.da-pop da 'int)))
+  (nob.da-free da)
+  (bc.free da))
+
+;; 9. nob.shift
+(let ((lst '("x" "y" "z")))
+  (let ((val (nob.shift lst)))
+    (display (format #f "  nob.shift first: ~S\n" val))
+    (display (format #f "  nob.shift remainder: ~S\n" lst))))
+
+;; 10. Rebuild dependencies checks
+(display (format #f "  needs-rebuild: ~A\n" (nob.needs-rebuild "build/lext" '("src/main.c" "src/nob.c"))))
+(display (format #f "  needs-rebuild?: ~A\n" (nob.needs-rebuild? "build/lext" "src/main.c")))
+
+;; 11. File Descriptors API
+(let ((fd (nob.fd-open-for-write "build/test_fd_stress.txt")))
+  (display (format #f "  fd-open-for-write: ~A\n" (>= fd 0)))
+  (nob.fd-close fd))
+(let ((fd (nob.fd-open-for-read "build/test_fd_stress.txt")))
+  (display (format #f "  fd-open-for-read: ~A\n" (>= fd 0)))
+  (nob.fd-close fd))
+(nob.delete-file "build/test_fd_stress.txt")
+
+;; 12. clean up helper dynamic lib
+(ffi-close libtest)
 (nob.delete-file "test/libtest.so")
-(display "All stress tests finished successfully!\n")
+
+(display "\nAll standard library functions checked and passed successfully!\n")

@@ -63,6 +63,22 @@
           (error "Failed to compile libnob.o"))
       (display "libnob.o is up to date.\n")))
 
+;; Compile a single lext C module into build-dir if any source/header is newer
+(define (build-lext-module obj src headers extra-cflags git-hash ffi-cflags)
+  (let ((out-path (append-builddir obj))
+        (all-deps (cons src headers)))
+    (if (any (lambda (dep) (nob.needs-rebuild? (append-builddir obj) dep)) all-deps)
+        (begin
+          (display (string-append "Rebuilding " obj "...\n"))
+          (let ((args (append `("gcc" "-O2" "-march=native" "-Wall")
+                              (split-string-by-spaces ffi-cflags)
+                              `(,(format #f "-DHASHVER=\"~A\"" git-hash))
+                              extra-cflags
+                              `("-c" ,src "-o" ,out-path))))
+            (if (not (nob.cmd-run args))
+                (error (string-append "Failed to compile " obj)))))
+        (display (string-append obj " is up to date.\n")))))
+
 ;; --- Build Process ---
 
 (display (format #f "\
@@ -75,17 +91,16 @@
 (if (member "clean" argv string=?)
     (begin
       (display "Cleaning workspace...\n")
-      (nob.delete-file (append-builddir "main.o"))
-      (nob.delete-file (append-builddir "s7.o"))
-      (nob.delete-file (append-builddir "libnob.o"))
-      (nob.delete-file (append-builddir "lext"))
+      (for-each (lambda (f) (nob.delete-file (append-builddir f)))
+                '("main.o" "lext_types.o" "lext_io.o" "lext_ffi.o" "lext_module.o"
+                  "s7.o" "libnob.o" "lext"))
       (exit)))
 
 (nob.mkdir-if-not-exists build-dir)
 
-(define git-hash (get-git-hash))
+(define git-hash  (get-git-hash))
 (define ffi-cflags (get-pkg-config-cflags))
-(define ffi-libs (get-pkg-config-libs))
+(define ffi-libs   (get-pkg-config-libs))
 
 ;; 0. Build static nob
 (build-static-nob)
@@ -99,27 +114,45 @@
           (error "Failed to compile s7.o")))
     (display "s7.o is up to date.\n"))
 
-;; 2. Compile main.o
-(if (nob.needs-rebuild? (append-builddir "main.o") "src/main.c")
-    (begin
-      (display "Rebuilding main.o...\n")
-      (let ((args (append `("gcc" "-O2" "-march=native" "-Wall")
-                          (split-string-by-spaces ffi-cflags)
-                          `(,(format #f "-DHASHVER=\"~A\"" git-hash) "-c" "src/main.c" "-o" ,(append-builddir "main.o")))))
-        (if (not (nob.cmd-run args))
-            (error "Failed to compile main.o"))))
-    (display "main.o is up to date.\n"))
+;; Common headers shared by all lext modules
+(define lext-common-headers
+  '("src/helpa.h" "src/lext_hash.h" "src/s7/s7.h"))
+
+;; 2. Compile lext modules
+(build-lext-module "lext_types.o" "src/lext_types.c"
+                   (append lext-common-headers '("src/lext_types.h"))
+                   '() git-hash ffi-cflags)
+
+(build-lext-module "lext_io.o" "src/lext_io.c"
+                   (append lext-common-headers '("src/lext_types.h" "src/lext_io.h"))
+                   '() git-hash ffi-cflags)
+
+(build-lext-module "lext_ffi.o" "src/lext_ffi.c"
+                   (append lext-common-headers '("src/lext_types.h" "src/lext_io.h" "src/lext_ffi.h"))
+                   '() git-hash ffi-cflags)
+
+(build-lext-module "lext_module.o" "src/lext_module.c"
+                   (append lext-common-headers '("src/lext_module.h"))
+                   '() git-hash ffi-cflags)
+
+(build-lext-module "main.o" "src/main.c"
+                   (append lext-common-headers
+                           '("src/lext_types.h" "src/lext_io.h"
+                             "src/lext_ffi.h"   "src/lext_module.h"))
+                   '() git-hash ffi-cflags)
 
 ;; 3. Link lext
-(if (or (nob.needs-rebuild? (append-builddir "lext") (append-builddir "main.o"))
-        (nob.needs-rebuild? (append-builddir "lext") (append-builddir "libnob.o"))
-        (nob.needs-rebuild? (append-builddir "lext") (append-builddir "s7.o")))
-    (begin
-      (display "Linking lext...\n")
-      (let ((args (append `("gcc" "-rdynamic" ,(append-builddir "main.o") ,(append-builddir "s7.o") ,(append-builddir "libnob.o") "-o" ,(append-builddir "lext") "-lm" "-ldl")
-                          (split-string-by-spaces ffi-libs))))
-        (if (not (nob.cmd-run args))
-            (error "Failed to link lext"))))
-    (display "lext is up to date.\n"))
+(let ((lext-objs '("main.o" "lext_types.o" "lext_io.o" "lext_ffi.o" "lext_module.o" "s7.o" "libnob.o")))
+  (if (any (lambda (obj) (nob.needs-rebuild? (append-builddir "lext") (append-builddir obj)))
+           lext-objs)
+      (begin
+        (display "Linking lext...\n")
+        (let ((args (append `("gcc" "-rdynamic")
+                            (map append-builddir lext-objs)
+                            `("-o" ,(append-builddir "lext") "-lm" "-ldl")
+                            (split-string-by-spaces ffi-libs))))
+          (if (not (nob.cmd-run args))
+              (error "Failed to link lext"))))
+      (display "lext is up to date.\n")))
 
 (display "Build finished successfully!\n")
