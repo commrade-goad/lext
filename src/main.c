@@ -602,6 +602,8 @@ static int write_val(s7_scheme *sc, void *buf, s7_pointer type_desc, ffi_type *f
             p = (void *)s7_string(val);
         } else if (s7_is_c_pointer(val)) {
             p = s7_c_pointer(val);
+        } else if (s7_is_pair(val) && s7_is_c_pointer(s7_cdr(val))) {
+            p = s7_c_pointer(s7_cdr(val));
         } else if (!s7_is_null(sc, val)) {
             return -1;
         }
@@ -1017,7 +1019,7 @@ static s7_pointer s7_ffi_call(s7_scheme *sc, s7_pointer args) {
             } else if (s7_is_string(val)) {
                 arg_types[i] = &ffi_type_pointer;
                 resolved_type_descs[i] = s7_make_symbol(sc, "string");
-            } else if (s7_is_c_pointer(val) || s7_is_null(sc, val)) {
+            } else if (s7_is_c_pointer(val) || s7_is_null(sc, val) || (s7_is_pair(val) && s7_is_c_pointer(s7_cdr(val)))) {
                 arg_types[i] = &ffi_type_pointer;
                 resolved_type_descs[i] = s7_make_symbol(sc, "pointer");
             } else {

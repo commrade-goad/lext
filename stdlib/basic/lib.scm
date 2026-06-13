@@ -456,3 +456,41 @@
   (if (internal-basic-tptr? tp)
       (internal-basic-tptr target-type (internal-basic-tptr-ptr tp))
       (internal-basic-tptr target-type tp)))
+
+;; --- Namespace Stripper & Importer Utilities ---
+(define *protected-symbols* '(set! = + - * / < > <= >=))
+
+(define-macro (open-namespace prefix)
+  (let ((st (symbol-table))
+        (prefix-len (string-length prefix))
+        (bindings '()))
+    (for-each
+      (lambda (sym)
+        (let ((sym-str (symbol->string sym)))
+          (if (and (> (string-length sym-str) prefix-len)
+                   (string=? (substring sym-str 0 prefix-len) prefix)
+                   (defined? sym))
+              (let ((new-sym (string->symbol (substring sym-str prefix-len))))
+                (unless (member new-sym *protected-symbols*)
+                  (set! bindings (cons `(define ,new-sym ,sym) bindings)))))))
+      st)
+    `(begin ,@(reverse bindings))))
+
+(define-macro (use-namespace prefix . body)
+  (let ((st (symbol-table))
+        (prefix-len (string-length prefix))
+        (bindings '()))
+    (for-each
+      (lambda (sym)
+        (let ((sym-str (symbol->string sym)))
+          (if (and (> (string-length sym-str) prefix-len)
+                   (string=? (substring sym-str 0 prefix-len) prefix)
+                   (defined? sym))
+              (let ((new-sym (string->symbol (substring sym-str prefix-len))))
+                (unless (member new-sym *protected-symbols*)
+                  (set! bindings (cons `',new-sym (cons sym bindings))))))))
+      st)
+    `(with-let (sublet (curlet) ,@bindings)
+       ,@body)))
+
+

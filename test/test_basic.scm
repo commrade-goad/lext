@@ -55,3 +55,22 @@
 
 (display "\n=== 6. Testing *platform* variable ===\n")
 (display (format #f "Platform: ~S\n" *platform*))
+
+(display "\n=== 7. Testing open-namespace and use-namespace ===\n")
+
+;; Test open-namespace globally
+(open-namespace "bc.")
+(display (format #f "After open-namespace, malloc is defined: ~A\n" (defined? 'malloc)))
+(display (format #f "After open-namespace, free is defined: ~A\n" (defined? 'free)))
+;; Verify standard protected operator is not overwritten
+(display (format #f "After open-namespace, standard = is still original: ~A\n" (eq? = (symbol->value '= (rootlet)))))
+
+;; Test use-namespace locally (scoped)
+(use-namespace "nob."
+  (display (format #f "Inside use-namespace, log is defined: ~A\n" (defined? 'log)))
+  (display (format #f "Inside use-namespace, cmd-new is defined: ~A\n" (defined? 'cmd-new))))
+
+;; Verify that outside use-namespace, local bindings are not polluted/defined
+(display (format #f "Outside use-namespace, log is defined: ~A\n" (defined? 'log)))
+(display (format #f "Outside use-namespace, cmd-new is defined: ~A\n" (defined? 'cmd-new)))
+
