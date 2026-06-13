@@ -137,15 +137,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "ERR: Could not open input file: %s\n", input_file);
         return EXIT_FAILURE;
     }
-    FILE *out = NULL;
-    if (!no_template) {
-        out = fopen(output_file, "w");
-        if (!out) {
-            fprintf(stderr, "ERR: Could not create output file: %s\n", output_file);
-            fclose(in);
-            return EXIT_FAILURE;
-        }
-    } else {
+    if (no_template) {
         fclose(in);
         in = NULL;
     }
@@ -155,7 +147,6 @@ int main(int argc, char **argv) {
     if (!s7) {
         fprintf(stderr, "ERR: Failed to initialize s7 Scheme engine.\n");
         if (in)  fclose(in);
-        if (out) fclose(out);
         return EXIT_FAILURE;
     }
 
@@ -226,11 +217,13 @@ int main(int argc, char **argv) {
 
     /* ----------------------------------------------------------------
      * Template engine — scan file for @@(...) delimiters and evaluate
-     * the enclosed Scheme expressions, writing string results to `out`.
+     * the enclosed Scheme expressions, writing string results to `out_buf`.
      * ---------------------------------------------------------------- */
     Loc loc = {1, 0};
     enum State state = STATE_TEXT;
     int c;
+    HStr out_buf;
+    hstr_init(&out_buf);
 
     while ((c = fgetc(in)) != EOF) {
         if (c == '\n') { loc.line++; loc.col = 0; } else loc.col++;
@@ -238,12 +231,12 @@ int main(int argc, char **argv) {
         switch (state) {
         case STATE_TEXT:
             if (c == '@') state = STATE_AT1;
-            else          fputc(c, out);
+            else          hstr_push(&out_buf, c);
             break;
 
         case STATE_AT1:
             if (c == '@') state = STATE_AT2;
-            else { fputc('@', out); fputc(c, out); state = STATE_TEXT; }
+            else { hstr_push(&out_buf, '@'); hstr_push(&out_buf, c); state = STATE_TEXT; }
             break;
 
         case STATE_AT2:
@@ -313,7 +306,7 @@ int main(int argc, char **argv) {
                     hstr_free(&lisp_buf);
                     helpa_da_free(locs);
                     fclose(in);
-                    fclose(out);
+                    hstr_free(&out_buf);
                     return EXIT_FAILURE;
                 }
 
@@ -323,28 +316,40 @@ int main(int argc, char **argv) {
                     helpa_da_free(locs);
                     hstr_free(&lisp_buf);
                     fclose(in);
-                    fclose(out);
+                    hstr_free(&out_buf);
                     return EXIT_FAILURE;
                 }
                 if (s7_is_string(res))
-                    fputs(s7_string(res), out);
+                    hstr_append_cstr(&out_buf, s7_string(res));
 
                 helpa_da_free(locs);
                 hstr_free(&lisp_buf);
                 state = STATE_TEXT;
             } else {
-                fputs("@@", out);
-                fputc(c, out);
+                hstr_append_cstr(&out_buf, "@@");
+                hstr_push(&out_buf, c);
                 state = STATE_TEXT;
             }
             break;
         }
     }
 
-    if      (state == STATE_AT1) fputc('@', out);
-    else if (state == STATE_AT2) fputs("@@", out);
+    if      (state == STATE_AT1) hstr_push(&out_buf, '@');
+    else if (state == STATE_AT2) hstr_append_cstr(&out_buf, "@@");
 
     fclose(in);
+
+    /* Write buffer to output file only at the very end upon success */
+    FILE *out = fopen(output_file, "w");
+    if (!out) {
+        fprintf(stderr, "ERR: Could not create output file: %s\n", output_file);
+        hstr_free(&out_buf);
+        return EXIT_FAILURE;
+    }
+    if (out_buf.sz > 0) {
+        fwrite(out_buf.dt, 1, out_buf.sz, out);
+    }
     fclose(out);
+    hstr_free(&out_buf);
     return EXIT_SUCCESS;
 }
