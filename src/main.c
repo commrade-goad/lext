@@ -188,9 +188,39 @@ int main(int argc, char **argv) {
     s7_define_variable(s7, "argv",          argv_list);
     s7_define_variable(s7, "*platform*",    s7_make_string(s7, PLATFORM_NAME));
 
+    /* ---- Register Error Hook for Exit Status Tracking & Formatting ---- */
+    s7_define_variable(s7, "*has-error*", s7_make_boolean(s7, false));
+    s7_eval_c_string(s7,
+        "(set! (hook-functions *error-hook*)\n"
+        "      (cons (lambda (hook)\n"
+        "              (set! *has-error* #t)\n"
+        "              (let ((e (owlet)))\n"
+        "                (if e\n"
+        "                    (let ((err-type (e 'error-type))\n"
+        "                          (err-data (e 'error-data))\n"
+        "                          (err-code (e 'error-code))\n"
+        "                          (err-file (e 'error-file))\n"
+        "                          (err-line (e 'error-line))\n"
+        "                          (err-pos  (e 'error-position)))\n"
+        "                      (if (and (pair? err-data) (string? (car err-data)))\n"
+        "                          (begin\n"
+        "                            (format *stderr* \"~%;\")\n"
+        "                            (apply format *stderr* err-data)\n"
+        "                            (format *stderr* \"~%\"))\n"
+        "                          (format *stderr* \"~%;~S ~S~%\" err-type err-data))\n"
+        "                      (if (string? err-file)\n"
+        "                          (format *stderr* \";    ~A~%;    ~A, line ~D, position: ~D~%\"\n"
+        "                                  err-code err-file err-line err-pos)))))\n"
+        "              #t)\n"
+        "            (hook-functions *error-hook*)))");
+
     /* ---- Script-only mode ---- */
     if (no_template) {
         s7_load(s7, input_file);
+        s7_pointer has_err = s7_name_to_value(s7, "*has-error*");
+        if (s7_is_boolean(has_err) && s7_boolean(s7, has_err)) {
+            return EXIT_FAILURE;
+        }
         return EXIT_SUCCESS;
     }
 
@@ -288,6 +318,14 @@ int main(int argc, char **argv) {
                 }
 
                 s7_pointer res = s7_eval_c_string(s7, (char *)lisp_buf.dt);
+                s7_pointer has_err = s7_name_to_value(s7, "*has-error*");
+                if (s7_is_boolean(has_err) && s7_boolean(s7, has_err)) {
+                    helpa_da_free(locs);
+                    hstr_free(&lisp_buf);
+                    fclose(in);
+                    fclose(out);
+                    return EXIT_FAILURE;
+                }
                 if (s7_is_string(res))
                     fputs(s7_string(res), out);
 
