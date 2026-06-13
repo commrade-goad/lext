@@ -137,6 +137,19 @@
       (lext-register-bounds ptr total-size))
     ptr))
 
+(define (c.raw-malloc size)
+  (internal-c-malloc size))
+
+(define (c.raw-free ptr)
+  (internal-c-free (if (internal-c-tptr? ptr) (internal-c-tptr-ptr ptr) ptr)))
+
+(define (c.raw-realloc ptr size)
+  (internal-c-realloc (if (internal-c-tptr? ptr) (internal-c-tptr-ptr ptr) ptr) size))
+
+(define (c.raw-calloc nmemb size)
+  (lext-calloc nmemb size))
+
+
 (define (internal-c-string->c-string str)
   (let* ((ptr (lext-string->c-string str))
          (len (+ (string-length str) 1)))

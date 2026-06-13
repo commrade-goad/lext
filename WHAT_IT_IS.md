@@ -272,6 +272,32 @@ To guarantee safety, all core allocations (`c.malloc`, `c.free`, `c.realloc`, an
   (define zeroed-ptr (c.calloc 10 4)) ;; Allocates 40 zeroed bytes
   ```
 
+If you need to perform raw memory management that bypasses the boundary tracking registry (e.g. for performance or when calling libraries that manage their own buffers), Lext provides raw untracked memory management primitives:
+
+* **`(c.raw-malloc size)`**  
+  Allocates raw untracked memory.
+  ```scheme
+  (define raw-ptr (c.raw-malloc 16))
+  ```
+
+* **`(c.raw-free ptr)`**  
+  Frees raw untracked memory.
+  ```scheme
+  (c.raw-free raw-ptr)
+  ```
+
+* **`(c.raw-realloc ptr size)`**  
+  Reallocates raw memory without modifying the bounds table.
+  ```scheme
+  (set! raw-ptr (c.raw-realloc raw-ptr 32))
+  ```
+
+* **`(c.raw-calloc nmemb size)`**  
+  Allocates zero-initialized heap memory without bounds tracking.
+  ```scheme
+  (define raw-zeroed (c.raw-calloc 10 4))
+  ```
+
 * **`(c.malloc-tracked size)`** / **`(c.free-tracked ptr)`** / **`(c.bounds-check ptr size)`**  
   Expose direct bounds table query interfaces.
 
