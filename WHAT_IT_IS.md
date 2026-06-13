@@ -12,13 +12,18 @@ This document provides a detailed overview of the core runtime engine, the C-sid
 3. [The Module System (`use`) & Search Paths](#3-the-module-system-use--search-paths)
 4. [C-Side Core Built-in Reference](#4-c-side-core-built-in-reference)
 5. [Standard Library: `basic` Module (`stdlib/basic/lib.lext`)](#5-standard-library-basic-module-stdlibbasicliblext)
+    - [Loop Constructs](#loop-constructs)
+    - [Namespace Strippers](#namespace-strippers)
+    - [List Mutation](#list-mutation)
+    - [Output Capture](#output-capture)
 6. [Standard Library: `c` Module (`stdlib/c/lib.lext`)](#6-standard-library-c-module-stdlibcliblext)
-   - [Memory Allocation Primitives](#memory-allocation-primitives)
-   - [Pointer Accessors & Mutators (`c.@`, `c.=`, `c.&`)](#pointer-accessors--mutators-c-c-c)
-   - [Layout Declarators (`struct`, `union`, `enum`)](#layout-declarators-struct-union-enum)
-   - [Scoped Sandbox Allocators (`with-heap-alloc`, `with-alloc`, etc.)](#scoped-sandbox-allocators-with-heap-alloc-with-alloc-etc)
-   - [String & Array Marshalling Helpers](#string--array-marshalling-helpers)
-   - [Output Capture Macro (`capture`)](#output-capture-macro-capture)
+    - [Memory Allocation Primitives](#memory-allocation-primitives)
+    - [Memory Copy, Fill, and Math](#memory-copy-fill-and-math)
+    - [Pointer Accessors & Mutators (`c.@`, `c.=`, `c.&`)](#pointer-accessors--mutators-c-c-c)
+    - [Layout Declarators (`struct`, `union`, `enum`)](#layout-declarators-struct-union-enum)
+    - [Typed Pointer Wrappers](#typed-pointer-wrappers)
+    - [Scoped Sandbox Allocators (`with-heap-alloc`, `with-alloc`, etc.)](#scoped-sandbox-allocators-with-heap-alloc-with-alloc-etc)
+    - [String & Array Marshalling Helpers](#string--array-marshalling-helpers)
 7. [The Task Runner Library: `libnob` Reference](#7-the-task-runner-library-libnob-reference)
 8. [Template Engine & Raw String Literals](#8-template-engine--raw-string-literals)
 9. [Emacs Major Mode Integration](#9-emacs-major-mode-integration)
@@ -157,6 +162,9 @@ The `lext` interpreter registers several low-level primitives in the global envi
 * **`(lext-unregister-bounds ptr)`**  
   Deregisters the pointer `ptr` from the boundary tracking table.
 
+* **`(lext-registered-size ptr)`**  
+  Queries the boundary table and returns the registered size in bytes for the pointer `ptr`. Returns `-1` if the pointer is not tracked.
+
 ### D. Native String & Memory Primitives (`src/lext_builtins.c`)
 
 * **`(lext-calloc nmemb size)`**  
@@ -190,35 +198,33 @@ The `lext` interpreter registers several low-level primitives in the global envi
 
 ---
 
-## 5. Standard Library: `basic` Module (`stdlib/basic/lib.lext`)
+This module extends the core Scheme syntax with standard control blocks, namespace managers, list utilities, and stdout capture tools.
 
-This module extends the core Scheme syntax with standard control blocks and namespace managers.
+### A. Loop Constructs (Exposed globally and under `bc.` prefix)
 
-### A. Loop Constructs (Exposed under `bc.` prefix)
-
-* **`bc.while`** (macro)  
+* **`while`** / **`bc.while`** (macro)  
   Loops while a condition is true.
   ```scheme
   (let ((i 0))
-    (bc.while (< i 3)
+    (while (< i 3)
       (format #t "i = ~A\n" i)
       (set! i (+ i 1))))
   ```
 
-* **`bc.for`** (macro)  
+* **`for`** / **`bc.for`** (macro)  
   Index range loop. Syntax: `(for (var start end [step]) body ...)`. The `end` boundary is exclusive.
   ```scheme
   ;; Prints: 0 1 2
-  (bc.for (i 0 3) (display i))
+  (for (i 0 3) (display i))
 
   ;; Prints: 5 3 1
-  (bc.for (i 5 0 -2) (display i))
+  (for (i 5 0 -2) (display i))
   ```
 
-* **`bc.foreach`** (macro)  
+* **`foreach`** / **`bc.foreach`** (macro)  
   Iterates over each item of a Scheme list.
   ```scheme
-  (bc.foreach (x '(apple orange banana))
+  (foreach (x '(apple orange banana))
     (format #t "Fruit: ~A\n" x))
   ```
 
@@ -228,7 +234,6 @@ This module extends the core Scheme syntax with standard control blocks and name
   Globally registers prefix-free copies of all variables matching `prefix-arg` (e.g. `"bc"`, `"c"`), while protecting core compiler symbols.
   ```scheme
   (open-namespace "bc") ;; strips "bc." prefix
-  ;; Now you can use while, for, foreach directly!
   ```
 
 * **`(use-namespace prefix-arg . body)`**  
@@ -236,6 +241,28 @@ This module extends the core Scheme syntax with standard control blocks and name
   ```scheme
   (use-namespace "bc"
     (for (i 0 3) (display i)))
+  ```
+
+### C. List Mutation
+
+* **`shift`** / **`bc.shift`** (macro)  
+  Pops the first element of a Scheme list and updates the list variable in place. Returns the popped element, or `#f` if the list is empty.
+  ```scheme
+  (define lst '("a" "b" "c"))
+  (define val (shift lst))
+  (display val) ;; Prints: "a"
+  (display lst) ;; Prints: ("b" "c")
+  ```
+
+### D. Output Capture
+
+* **`capture`** / **`bc.capture`** (macro)  
+  Runs the body and captures anything it outputs to stdout, returning it as a string.
+  ```scheme
+  (define output (capture
+                   (display "Hello ")
+                   (display "World!")))
+  (display output) ;; Prints: "Hello World!"
   ```
 
 ---
@@ -298,8 +325,32 @@ If you need to perform raw memory management that bypasses the boundary tracking
   (define raw-zeroed (c.raw-calloc 10 4))
   ```
 
-* **`(c.malloc-tracked size)`** / **`(c.free-tracked ptr)`** / **`(c.bounds-check ptr size)`**  
-  Expose direct bounds table query interfaces.
+* **`(c.malloc-tracked size)`** / **`(c.free-tracked ptr)`** / **`(c.bounds-check ptr size)`** / **`(lext-registered-size ptr)`**  
+  Expose bounds table query and check interfaces.
+
+---
+
+### Memory Copy, Fill, and Math
+
+To guarantee memory safety, Lext features bounds-checked memory copy, fill, and pointer arithmetic functions. These automatically query the bounds tracking registry and throw Scheme-level errors if you attempt an out-of-bounds access. Raw untracked variants are also provided for performance or manual memory layout scenarios.
+
+* **`(c.memcpy dest src byte-count)`**  
+  Bounds-checked memory copy of `byte-count` bytes from `src` to `dest`. Throws an error if `dest` or `src` are tracked and `byte-count` exceeds their registered sizes.
+* **`(c.raw-memcpy dest src byte-count)`**  
+  Raw untracked memory copy.
+
+* **`(c.memset dest byte-value byte-count)`**  
+  Bounds-checked memory fill. Throws an error if `dest` is tracked and `byte-count` exceeds its registered size.
+* **`(c.raw-memset dest byte-value byte-count)`**  
+  Raw untracked memory fill.
+
+* **`(c.ptr+ tp offset)`**  
+  Bounds-checked pointer arithmetic. Verifies that `offset` lies within the registered memory block, and registers the remaining block bounds `(- size offset)` for the returned offsetted pointer.
+* **`(c.raw-ptr+ tp offset)`**  
+  Raw pointer arithmetic without range validation or remaining bounds registration.
+  ```scheme
+  (define new-ptr (c.ptr+ ptr 8))
+  ```
 
 ---
 
@@ -350,95 +401,110 @@ Lext resolves structure layout padding and array math at runtime. You navigate p
 
 ### Layout Declarators (`struct`, `union`, `enum`)
 
-* **`define-c-struct`** (macro)  
+* **`define-c-struct`** / **`c.struct`** (macro)  
   Registers a structured layout with the ABI compiler.
   ```scheme
-  (define-c-struct Point
+  (c.struct Point
     (x int)
     (y int))
   ```
 
-* **`define-c-union`** (macro)  
-  Registers a overlapping union layout.
+* **`define-c-union`** / **`c.union`** (macro)  
+  Registers an overlapping union layout.
   ```scheme
-  (define-c-union IntOrDouble
+  (c.union IntOrDouble
     (i int)
     (d double))
   ```
 
-* **`define-c-enum`** (macro)  
+* **`define-c-enum`** / **`c.enum`** (macro)  
   Declares a list of named integer enum constants.
   ```scheme
-  (define-c-enum State
+  (c.enum State
     :state-pending
     :state-active)
   ```
 
-* **`(c-size type)`**  
+* **`(c-size type)`** / **`(c.size type)`**  
   Returns the size in bytes of the given FFI type layout tag, automatically translating Lext-style types (like pointers and arrays).
   ```scheme
-  (c-size 'Point)          ;; Returns 8
-  (c-size '(* Point))      ;; Returns 8 (size of raw pointer)
+  (c.size 'Point)          ;; Returns 8
+  (c.size '(* Point))      ;; Returns 8 (size of raw pointer)
   ```
 
-* **`(translate-ffi-type type)`**  
+* **`(translate-ffi-type type)`** / **`(c.translate-ffi-type type)`**  
   Translates a Lext-style FFI type syntax descriptor into s7 FFI low-level layouts.
   ```scheme
-  (translate-ffi-type '(* char))       ;; Returns 'pointer
-  (translate-ffi-type '(array int 10))  ;; Returns '(array int 10)
+  (c.translate-ffi-type '(* char))       ;; Returns 'pointer
+  (c.translate-ffi-type '(array int 10))  ;; Returns '(array int 10)
   ```
 
-* **`c-import`** (macro)  
+* **`c-import`** / **`c.import`** (macro)  
   Imports a C function and binds it to a clean Scheme procedure wrapper.
-  - *Syntax*: `(c-import scheme-name lib-handle c-name ret-type arg-types [nfixed])`
+  - *Syntax*: `(c.import scheme-name lib-handle c-name ret-type arg-types [nfixed])`
   ```scheme
-  (c-import c-cos libc "cos" double (double))
+  (c.import c-cos libc "cos" double (double))
   ```
+
+---
+
+### Typed Pointer Wrappers
+
+Lext supports typed pointer wrappers which group a raw C pointer together with a layout type symbol.
+
+* **`(c.tptr type ptr)`**  
+  Creates a typed pointer wrapper object.
+* **`(c.tptr-type tp)`**  
+  Extracts the type symbol from a typed pointer.
+* **`(c.tptr-ptr tp)`**  
+  Extracts the raw C pointer from a typed pointer.
+* **`(c.tptr? x)`**  
+  Returns `#t` if `x` is a typed pointer wrapper object.
 
 ---
 
 ### Scoped Sandbox Allocators (`with-heap-alloc`, `with-alloc`, etc.)
 
-Lext features scoped block allocation macros. These guarantee that memory is cleaned up automatically upon block exit (even on errors).
+Lext features scoped block allocation macros. These guarantee that memory is cleaned up automatically upon block exit (even on errors). They are exposed both globally (under prefix-free names) and in the `c` namespace (prefixed with `c.`).
 
-* **`with-heap-alloc`** (macro)  
+* **`with-heap-alloc`** / **`c.with-heap-alloc`** (macro)  
   Allocates heap memory for a struct or type descriptor.
-  - *Syntax*: `(with-heap-alloc (var type [count]) body ...)`
+  - *Syntax*: `(c.with-heap-alloc (var type [count]) body ...)`
   ```scheme
-  (with-heap-alloc (p Point)
+  (c.with-heap-alloc (p Point)
     (c.= p.x 10)
     (c.= p.y 20)
     (format #t "Point: ~A, ~A\n" (c.@ p.x) (c.@ p.y)))
   ```
 
-* **`with-alloc`** (macro)  
+* **`with-alloc`** / **`c.with-alloc`** (macro)  
   An alias for `with-heap-alloc`.
   ```scheme
-  (with-alloc (p Point)
+  (c.with-alloc (p Point)
     (c.= p.x 50))
   ```
 
-* **`with-c-string`** (macro)  
+* **`with-c-string`** / **`c.with-c-string`** (macro)  
   Allocates a temporary null-terminated C string (`char*`) containing the Scheme string, and automatically registers it in the bounds table.
-  - *Syntax*: `(with-c-string (var "my string") body ...)`
+  - *Syntax*: `(c.with-c-string (var "my string") body ...)`
   ```scheme
-  (with-c-string (s "Hello FFI")
+  (c.with-c-string (s "Hello FFI")
     (c-puts s))
   ```
 
-* **`with-c-array`** (macro)  
+* **`with-c-array`** / **`c.with-c-array`** (macro)  
   Allocates a temporary primitive array from a Scheme list, registered in the bounds checking table.
-  - *Syntax*: `(with-c-array (var type '(value1 value2 ...)) body ...)`
+  - *Syntax*: `(c.with-c-array (var type '(value1 value2 ...)) body ...)`
   ```scheme
-  (with-c-array (arr int '(10 20 30))
+  (c.with-c-array (arr int '(10 20 30))
     (format #t "Index 1: ~A\n" (c.@ arr.1)))
   ```
 
-* **`with-c-string-array`** (macro)  
+* **`with-c-string-array`** / **`c.with-c-string-array`** (macro)  
   Allocates a temporary null-terminated pointer array (`char**`).
-  - *Syntax*: `(with-c-string-array (var '("string1" "string2")) body ...)`
+  - *Syntax*: `(c.with-c-string-array (var '("string1" "string2")) body ...)`
   ```scheme
-  (with-c-string-array (args '("echo" "hello"))
+  (c.with-c-string-array (args '("echo" "hello"))
      (some-exec-fn args))
   ```
 
@@ -446,30 +512,20 @@ Lext features scoped block allocation macros. These guarantee that memory is cle
 
 ### String & Array Marshalling Helpers
 
-* **`(c-string-from-ptr ptr)`**  
+* **`(c-string-from-ptr ptr)`** / **`(c.string-from-ptr ptr)`**  
   Decodes a null-terminated C string (`char*`) into a Scheme string.
   ```scheme
-  (define path-str (c-string-from-ptr path-ptr))
+  (define path-str (c.string-from-ptr path-ptr))
   ```
 
-* **`(c-string-array->list ptr)`**  
+* **`(c-string-array->list ptr)`** / **`(c.string-array->list ptr)`**  
   Decodes a null-terminated pointer array (`char**`) into a Scheme list of strings.
   ```scheme
-  (define args-list (c-string-array->list argv-ptr))
+  (define args-list (c.string-array->list argv-ptr))
   ```
 
----
-
-### Output Capture Macro (`capture`)
-
-* **`capture`** (macro)  
-  Runs the body and captures anything it outputs to stdout, returning it as a string.
-  ```scheme
-  (define output (capture
-                   (display "Hello ")
-                   (display "World!")))
-  (display output) ;; Prints: "Hello World!"
-  ```
+* **`(c.string->c-string str)`**  
+  Serializes a Scheme string into a new null-terminated C string, automatically registering it in the bounds table.
 
 ---
 
