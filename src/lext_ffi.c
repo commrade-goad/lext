@@ -102,6 +102,23 @@ static s7_pointer builtin_unregister_bounds(s7_scheme *sc, s7_pointer args) {
     return s7_unspecified(sc);
 }
 
+static s7_pointer builtin_registered_size(s7_scheme *sc, s7_pointer args) {
+    s7_pointer ptr_arg = s7_car(args);
+    void *p = NULL;
+    if (s7_is_c_pointer(ptr_arg)) p = s7_c_pointer(ptr_arg);
+    else if (s7_is_null(sc, ptr_arg)) return s7_make_integer(sc, -1);
+    else return s7_wrong_type_arg_error(sc, "lext-registered-size", 1, ptr_arg, "c-pointer");
+
+    if (!ptr_bounds_table || !p) return s7_make_integer(sc, -1);
+    char addr_buf[32];
+    snprintf(addr_buf, sizeof(addr_buf), "%p", p);
+    MeowHash key = meow_hash_string(addr_buf);
+    void *stored = meow_hash_table_get(ptr_bounds_table, key);
+    if (!stored) return s7_make_integer(sc, -1);
+    return s7_make_integer(sc, (s7_int)(uintptr_t)stored);
+}
+
+
 
 /* ------------------------------------------------------------------ */
 /* Dynamic library helpers                                              */
@@ -646,4 +663,6 @@ void lext_ffi_register(s7_scheme *sc) {
                        "(lext-register-bounds ptr size) registers bounds for dynamic pointer");
     s7_define_function(sc, "lext-unregister-bounds", builtin_unregister_bounds, 1, 0, false,
                        "(lext-unregister-bounds ptr) removes bounds entry for pointer");
+    s7_define_function(sc, "lext-registered-size", builtin_registered_size, 1, 0, false,
+                       "(lext-registered-size ptr) returns size of tracked pointer or -1 if not tracked");
 }

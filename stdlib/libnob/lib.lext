@@ -19,15 +19,7 @@
 
 
 
-;; Pointer Arithmetic Helpers
-(define (nob.c-pointer->integer ptr)
-  (c-pointer->integer ptr))
 
-(define (nob.integer->c-pointer addr)
-  (integer->c-pointer addr))
-
-(define (nob.pointer-add ptr offset)
-  (integer->c-pointer (+ (c-pointer->integer ptr) offset)))
 
 ;; C Struct Type Registrations
 (ffi-typedef 'Nob_Cmd
@@ -351,7 +343,7 @@
             (let loop ((i 0))
               (if (< i count)
                   (begin
-                    (let* ((str-ptr (nob.pointer-add items-ptr (* i 8)))
+                    (let* ((str-ptr (internal-c-ptr+ items-ptr (* i 8)))
                            (str (ffi-deref str-ptr 'string)))
                       (set! result (cons str result))
                       (loop (+ i 1))))))
@@ -515,7 +507,7 @@
        (nob.da-reserve ,da-var (+ ,count 1) ,item-size)
        (let* ((,da-struct (nob.da-get ,da-var))
               (,items (cdr (assoc 'items ,da-struct)))
-              (,item-ptr (nob.pointer-add ,items (* ,count ,item-size))))
+              (,item-ptr (internal-c-ptr+ ,items (* ,count ,item-size))))
          (ffi-set! ,item-ptr ',type ,item)
          (nob.da-update! ,da-var ,items (+ ,count 1) (cdr (assoc 'capacity ,da-struct)))))))
 
@@ -532,7 +524,7 @@
                       (else (error "Unsupported type")))))
     (if (> count 0)
         (let* ((new-count (- count 1))
-               (item-ptr (nob.pointer-add items (* new-count item-size)))
+               (item-ptr (internal-c-ptr+ items (* new-count item-size)))
                (val (ffi-deref item-ptr type)))
           (nob.da-update! da items new-count capacity)
           val)
@@ -557,17 +549,10 @@
                       ((eq? type 'uchar) 1)
                       (else (error "Unsupported type")))))
     (if (> count 0)
-        (let* ((item-ptr (nob.pointer-add items (* (- count 1) item-size))))
+        (let* ((item-ptr (internal-c-ptr+ items (* (- count 1) item-size))))
           (ffi-deref item-ptr type))
         (error "da-last: empty array"))))
 
-;; nob.shift macro for Scheme lists
-(define-macro (nob.shift lst)
-  `(if (not (null? ,lst))
-       (let ((first (car ,lst)))
-         (set! ,lst (cdr ,lst))
-         first)
-       #f))
 
 ;; nob.needs-rebuild: check if output needs rebuilding relative to one or more input files
 (define (nob.needs-rebuild output inputs)

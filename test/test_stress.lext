@@ -164,9 +164,9 @@
 
 ;; 1. Pointer arithmetic
 (let* ((ptr (c.malloc 8))
-       (addr (nob.c-pointer->integer ptr))
-       (ptr2 (nob.integer->c-pointer addr))
-       (ptr3 (nob.pointer-add ptr2 4)))
+       (addr (c-pointer->integer ptr))
+       (ptr2 (integer->c-pointer addr))
+       (ptr3 (c.raw-ptr+ ptr2 4)))
   (display (format #f "  Pointer conversions: ~A\n" (eq? ptr ptr2)))
   (display (format #f "  Pointer add offset: ~A\n" (not (eq? ptr2 ptr3))))
   (c.free ptr))
@@ -347,11 +347,11 @@
   (nob.da-free da)
   (c.free da))
 
-;; 9. nob.shift
+;; 9. bc.shift
 (let ((lst '("x" "y" "z")))
-  (let ((val (nob.shift lst)))
-    (display (format #f "  nob.shift first: ~S\n" val))
-    (display (format #f "  nob.shift remainder: ~S\n" lst))))
+  (let ((val (bc.shift lst)))
+    (display (format #f "  bc.shift first: ~S\n" val))
+    (display (format #f "  bc.shift remainder: ~S\n" lst))))
 
 ;; 10. Rebuild dependencies checks
 (display (format #f "  needs-rebuild: ~A\n" (nob.needs-rebuild "build/lext" '("src/main.c" "src/nob.c"))))
@@ -366,8 +366,101 @@
   (nob.fd-close fd))
 (nob.delete-file "build/test_fd_stress.txt")
 
+;; ============================================================================
+;; PART C: Public Bounds Checking API Tests
+;; ============================================================================
+(display "\n--- [PART C] Testing Public Bounds Checking API ---\n")
+
+(define-macro (assert-error expr)
+  `(let ((has-error #f))
+     (catch #t
+       (lambda ()
+         ,expr)
+       (lambda (tag info)
+         (set! has-error #t)))
+     (if (not has-error)
+         (error (format #f "Expression failed to throw error: ~S" ',expr))
+         (display (format #f "  Expected error caught successfully for: ~S\n" ',expr)))))
+
+(let* ((p-tracked (c.malloc 10))
+       (p-raw (c.raw-malloc 100)))
+  ;; 1. Check registered sizes
+  (display (format #f "  registered size of tracked ptr: ~A\n" (lext-registered-size p-tracked)))
+  (display (format #f "  registered size of raw ptr (should be -1): ~A\n" (lext-registered-size p-raw)))
+  
+  ;; 2. Test c.memset
+  (c.memset p-tracked 65 10) ; okay
+  (assert-error (c.memset p-tracked 65 11)) ; error
+  (c.memset p-raw 65 100) ; okay (raw pointer, no bounds check)
+  
+  ;; 3. Test c.memcpy
+  (c.memcpy p-tracked p-tracked 5) ; okay
+  (assert-error (c.memcpy p-tracked p-tracked 11)) ; error (dest/src out of bounds)
+  (c.memcpy p-raw p-raw 50) ; okay (raw pointer, no bounds check)
+  
+  ;; 4. Test c.ptr+
+  (let ((offset-ptr (c.ptr+ p-tracked 4)))
+    (display (format #f "  c.ptr+ offset registered size: ~A\n" (lext-registered-size offset-ptr)))
+    (c.memset offset-ptr 66 6) ; okay (4 + 6 = 10)
+    (assert-error (c.memset offset-ptr 66 7))) ; error (4 + 7 = 11 > 10)
+    
+  (assert-error (c.ptr+ p-tracked 11)) ; error (offset out of bounds)
+  (assert-error (c.ptr+ p-tracked -1)) ; error (offset out of bounds)
+  
+  ;; 5. Test c.deref and c.set! (and c.@ / c.=)
+  (define-c-struct Test_Point
+    (x int)
+    (y int))
+    
+  (let ((pt (c.c-cast p-tracked 'Test_Point)))
+    (c.set! pt 'Test_Point 123 'x) ; okay
+    (c.set! pt 'Test_Point 456 'y) ; okay
+    (display (format #f "  c.deref x: ~A, y: ~A\n" (c.deref pt 'Test_Point 'x) (c.deref pt 'Test_Point 'y)))
+    
+    (let ((pt-out (c.ptr+ pt 4))) ; remaining size = 6. Test_Point needs 8 bytes.
+      (assert-error (c.deref pt-out 'Test_Point 'y)))) ; error (y is at offset 4 of pt-out, needing 4 bytes -> total 8 bytes, but remaining size is 6)
+      
+  ;; 6. Test raw variants (c.raw-memcpy, c.raw-memset, c.raw-ptr+)
+  (c.raw-memset p-raw 67 50)
+  (c.raw-memcpy p-raw p-raw 50)
+  (let ((offset-raw (c.raw-ptr+ p-raw 50)))
+    (display (format #f "  c.raw-ptr+ registered size (should be -1): ~A\n" (lext-registered-size offset-raw)))
+    (c.raw-memset offset-raw 68 10))
+
+  ;; 7. Test prefix-consistent aliases (c.tptr, c.size, etc.)
+  (let ((pt-tptr (c.tptr 'Test_Point p-tracked)))
+    (display (format #f "  c.tptr?: ~A\n" (c.tptr? pt-tptr)))
+    (display (format #f "  c.tptr-type: ~A\n" (c.tptr-type pt-tptr)))
+    (display (format #f "  c.tptr-ptr check: ~A\n" (c-pointer? (c.tptr-ptr pt-tptr))))
+    (display (format #f "  c.size: ~A\n" (c.size 'Test_Point))))
+
+  (let ((str-ptr (c.string->c-string "Hello consistent!")))
+    (display (format #f "  c.string-from-ptr: ~S\n" (c.string-from-ptr str-ptr)))
+    (c.free str-ptr))
+
+  ;; 8. Test prefix-consistent macros (c.with-alloc, c.with-c-string, etc.)
+  (c.with-alloc (pt-ns Test_Point)
+    (c.set! pt-ns 'Test_Point 999 'x)
+    (display (format #f "  c.with-alloc: ~A\n" (c.deref pt-ns 'Test_Point 'x))))
+
+  (c.with-c-string (s-ns "Namespaced string FFI")
+    (display (format #f "  c.with-c-string: ~S\n" (c.string-from-ptr s-ns))))
+
+  (c.with-c-array (arr-ns int '(44 55 66))
+    (display (format #f "  c.with-c-array [1]: ~A\n" (c.deref arr-ns 'int 1))))
+
+  (c.with-c-string-array (s-arr-ns '("ns1" "ns2"))
+    (display (format #f "  c.with-c-string-array: ~S\n" (c.string-array->list s-arr-ns))))
+
+  (let ((out-ns (bc.capture (display "Stdout consistent!\n"))))
+    (display (format #f "  bc.capture output: ~S\n" out-ns)))
+
+  (c.free p-tracked)
+  (c.raw-free p-raw))
+
 ;; 12. clean up helper dynamic lib
 (ffi-close libtest)
 (nob.delete-file "test/libtest.so")
 
 (display "\nAll standard library functions checked and passed successfully!\n")
+

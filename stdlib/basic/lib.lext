@@ -55,6 +55,17 @@
     (else
      (error "invalid for syntax" clause))))
 
+;; --- Global Loop Macros (for convenience without bc. prefix) ---
+(define-macro (while cond . body)
+  `(bc.while ,cond ,@body))
+
+(define-macro (foreach clause . body)
+  `(bc.foreach ,clause ,@body))
+
+(define-macro (for clause . body)
+  `(bc.for ,clause ,@body))
+
+
 ;; --- Namespace Stripper & Importer Utilities ---
 (define *protected-symbols* '(set! = + - * / < > <= >=))
 
@@ -102,3 +113,21 @@
       st)
     `(with-let (sublet (curlet) ,@bindings)
        ,@body)))
+
+;; --- Output Capture Macros ---
+(define-macro (bc.capture . body)
+  `(lext-capture-output (lambda () ,@body)))
+
+(define-macro (capture . body)
+  `(bc.capture ,@body))
+
+;; --- List Mutation Macros ---
+(define-macro (bc.shift lst)
+  `(if (not (null? ,lst))
+       (let ((first (car ,lst)))
+         (set! ,lst (cdr ,lst))
+         first)
+       #f))
+
+(define-macro (shift lst)
+  `(bc.shift ,lst))

@@ -29,7 +29,7 @@
 
 (defun lext-rainbow-highlight-delimiters (limit)
   "Function to scan and apply dynamic rainbow coloring to delimiters up to LIMIT."
-  (while (re-search-forward "[()\[\]{}]" limit t)
+  (while (re-search-forward "[][(){}]" limit t)
     (let ((state (syntax-ppss)))
       (when (not (or (nth 3 state) (nth 4 state)))
         (let* ((depth (nth 0 state))
@@ -232,9 +232,12 @@ Editing commands are similar to those of `scheme-mode' and `lisp-mode'."
 	       "receive"
                ;; Lext extensions
                "use" "c-import" "define-c-struct" "define-c-union" "define-c-enum"
+               "c.import" "c.struct" "c.union" "c.enum"
                "with-heap-alloc" "with-alloc" "with-c-string" "with-c-array"
                "with-c-string-array" "capture" "open-namespace" "use-namespace"
-               "while" "for" "foreach"
+               "c.with-heap-alloc" "c.with-alloc" "c.with-c-string" "c.with-c-array"
+               "c.with-c-string-array" "bc.capture" "bc.shift"
+               "while" "for" "foreach" "shift"
                ) t)
         "\\_>") 1)
       ;; Named-let
@@ -257,7 +260,9 @@ Editing commands are similar to those of `scheme-mode' and `lisp-mode'."
                   "malloc" "free" "realloc" "calloc" "deref" "set!" "addr"
                   "null-ptr" "null-ptr?" "c-cast"
                   "c.malloc" "c.free" "c.realloc" "c.calloc" "c.deref" "c.set!"
-                  "c.addr" "c.null-ptr" "c.null-ptr?" "c.c-cast"
+                  "c.addr" "c.null-ptr" "c.null-ptr?" "c.c-cast" "c.memcpy" "c.memset" "c.ptr+"
+                  "c.raw-malloc" "c.raw-free" "c.raw-realloc" "c.raw-calloc" "c.raw-memcpy" "c.raw-memset" "c.raw-ptr+"
+                  "c.tptr" "c.tptr-type" "c.tptr-ptr" "c.tptr?" "c.string-from-ptr" "c.string-array->list" "c.string->c-string" "c.size"
                   "bc.malloc" "bc.free" "bc.realloc" "bc.calloc" "bc.deref" "bc.set!"
                   "bc.addr" "bc.null-ptr" "bc.null-ptr?" "bc.c-cast"
                   "bc.malloc-tracked" "bc.free-tracked" "bc.bounds-check"
@@ -285,7 +290,7 @@ Editing commands are similar to those of `scheme-mode' and `lisp-mode'."
        'font-lock-type-face)
       ;;
       ;; Memory operator warning faces (prefixed or raw: @, =, &)
-      '("\\_<\\(?:c\\.\\|bc\\.\\)?\\(?:@\\|=\\|&\\)\\_>" . font-lock-warning-face)
+      '("\\(?:\\_<c\\.\\|\\_<bc\\.\\|\\_<\\)\\(?:@\\|=\\|&\\)" . font-lock-warning-face)
       ;;
       ;; Raw string prefix (the 'r' before double quote in r"...")
       '("\\_<\\(r\\)\"" 1 font-lock-warning-face)
@@ -295,6 +300,8 @@ Editing commands are similar to those of `scheme-mode' and `lisp-mode'."
       ;;
       ;; Keywords as builtins
       '("\\<#?:\\sw+\\>" . font-lock-builtin-face)
+      ;; Booleans
+      '("\\_<#[tf]\\_>" . font-lock-constant-face)
       ))
    lext-font-lock-keywords-1
    ;; Anchored rainbow delimiters matching (placed last to override paren faces)
@@ -492,6 +499,12 @@ Editing commands are similar to those of `scheme-mode' and `lisp-mode'."
 (put 'bc.for 'lext-indent-function 1)
 (put 'bc.foreach 'lext-indent-function 1)
 (put 'capture 'lext-indent-function 0)
+(put 'bc.capture 'lext-indent-function 0)
+(put 'c.with-heap-alloc 'lext-indent-function 1)
+(put 'c.with-alloc 'lext-indent-function 1)
+(put 'c.with-c-string 'lext-indent-function 1)
+(put 'c.with-c-array 'lext-indent-function 1)
+(put 'c.with-c-string-array 'lext-indent-function 1)
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.lext\\'" . lext-mode))

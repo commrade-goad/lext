@@ -17,6 +17,18 @@
   (and (pair? x)
        (c-pointer? (cdr x))))
 
+(define (c.tptr type ptr)
+  (internal-c-tptr type ptr))
+
+(define (c.tptr-type tp)
+  (internal-c-tptr-type tp))
+
+(define (c.tptr-ptr tp)
+  (internal-c-tptr-ptr tp))
+
+(define (c.tptr? x)
+  (internal-c-tptr? x))
+
 
 ;; --- Type Translation Matrix ---
 (define (translate-ffi-type type)
@@ -158,6 +170,16 @@
     ptr))
 
 
+(define (internal-c-check-bounds base-ptr target-ptr size name)
+  (let ((raw-base (if (internal-c-tptr? base-ptr) (internal-c-tptr-ptr base-ptr) base-ptr))
+        (raw-target (if (internal-c-tptr? target-ptr) (internal-c-tptr-ptr target-ptr) target-ptr)))
+    (let ((reg-sz (lext-registered-size raw-base)))
+      (if (>= reg-sz 0)
+          (let* ((diff (- (c-pointer->integer raw-target) (c-pointer->integer raw-base)))
+                 (total-needed (+ diff size)))
+            (if (or (< diff 0) (> total-needed reg-sz))
+                (error (format #f "~A: out of bounds access (requested ~A bytes at offset ~A, registered size ~A)" name size diff reg-sz))))))))
+
 (define (internal-c-memcpy dest src byte-count)
   (internal-c-memcpy-raw (if (internal-c-tptr? dest) (internal-c-tptr-ptr dest) dest)
                          (if (internal-c-tptr? src) (internal-c-tptr-ptr src) src)
@@ -172,6 +194,40 @@
   (if (internal-c-tptr? tp)
       (internal-c-tptr (internal-c-tptr-type tp) (integer->c-pointer (+ (c-pointer->integer (internal-c-tptr-ptr tp)) offset)))
       (integer->c-pointer (+ (c-pointer->integer tp) offset))))
+
+(define (c.memcpy dest src byte-count)
+  (let ((raw-dest (if (internal-c-tptr? dest) (internal-c-tptr-ptr dest) dest))
+        (raw-src (if (internal-c-tptr? src) (internal-c-tptr-ptr src) src)))
+    (internal-c-check-bounds raw-dest raw-dest byte-count "c.memcpy dest")
+    (internal-c-check-bounds raw-src raw-src byte-count "c.memcpy src")
+    (internal-c-memcpy-raw raw-dest raw-src byte-count)))
+
+(define (c.memset dest byte-value byte-count)
+  (let ((raw-dest (if (internal-c-tptr? dest) (internal-c-tptr-ptr dest) dest)))
+    (internal-c-check-bounds raw-dest raw-dest byte-count "c.memset")
+    (internal-c-memset-raw raw-dest byte-value byte-count)))
+
+(define (c.ptr+ tp offset)
+  (let* ((raw-ptr (if (internal-c-tptr? tp) (internal-c-tptr-ptr tp) tp))
+         (new-raw (integer->c-pointer (+ (c-pointer->integer raw-ptr) offset))))
+    (let ((reg-sz (lext-registered-size raw-ptr)))
+      (if (>= reg-sz 0)
+          (begin
+            (if (or (< offset 0) (> offset reg-sz))
+                (error (format #f "c.ptr+: offset ~A is out of bounds for registered size ~A" offset reg-sz)))
+            (lext-register-bounds new-raw (- reg-sz offset)))))
+    (if (internal-c-tptr? tp)
+        (internal-c-tptr (internal-c-tptr-type tp) new-raw)
+        new-raw)))
+
+(define (c.raw-memcpy dest src byte-count)
+  (internal-c-memcpy dest src byte-count))
+
+(define (c.raw-memset dest byte-value byte-count)
+  (internal-c-memset dest byte-value byte-count))
+
+(define (c.raw-ptr+ tp offset)
+  (internal-c-ptr+ tp offset))
 
 ;; --- Memory Math and Layout Metadata ---
 (define (internal-c-resolve-type type)
@@ -265,16 +321,22 @@
            (error "Cannot navigate step on primitive type:" step type))))))
 
 (define (c.deref ptr type . path)
-  (let* ((res (internal-c-resolve-path ptr type path))
+  (let* ((raw-ptr (if (internal-c-tptr? ptr) (internal-c-tptr-ptr ptr) ptr))
+         (res (internal-c-resolve-path raw-ptr type path))
          (target-ptr (car res))
-         (target-type (cdr res)))
-    (ffi-deref target-ptr target-type)))
+         (target-type (cdr res))
+         (size (c-size target-type)))
+    (internal-c-check-bounds raw-ptr target-ptr size "c.deref")
+    (ffi-deref (if (internal-c-tptr? target-ptr) (internal-c-tptr-ptr target-ptr) target-ptr) target-type)))
 
 (define (c.set! ptr type value . path)
-  (let* ((res (internal-c-resolve-path ptr type path))
+  (let* ((raw-ptr (if (internal-c-tptr? ptr) (internal-c-tptr-ptr ptr) ptr))
+         (res (internal-c-resolve-path raw-ptr type path))
          (target-ptr (car res))
-         (target-type (cdr res)))
-    (ffi-set! target-ptr target-type value)))
+         (target-type (cdr res))
+         (size (c-size target-type)))
+    (internal-c-check-bounds raw-ptr target-ptr size "c.set!")
+    (ffi-set! (if (internal-c-tptr? target-ptr) (internal-c-tptr-ptr target-ptr) target-ptr) target-type value)))
 
 (define (internal-c-string-split str delim)
   (let ((len (string-length str))
@@ -415,8 +477,7 @@
            (for-each c.free ,ptrs)
            (c.free ,ptr))))))  ; wait, bc.free here should be c.free! Let's be careful.
 
-(define-macro (capture . body)
-  `(lext-capture-output (lambda () ,@body)))
+
 
 ;; --- Common Helper Functions ---
 (define (c.null-ptr? x)
@@ -449,3 +510,21 @@
 (define (c.malloc-tracked size) (lext-malloc-tracked size))
 (define (c.free-tracked ptr) (lext-free-tracked ptr))
 (define (c.bounds-check ptr size) (lext-bounds-check ptr size))
+
+;; --- Prefix-Consistent Namespace Aliases ---
+(define (c.string-from-ptr x) (c-string-from-ptr x))
+(define (c.string-array->list tp) (c-string-array->list tp))
+(define (c.string->c-string str) (internal-c-string->c-string str))
+(define (c.size type) (c-size type))
+
+(define-macro (c.import . args) `(c-import ,@args))
+(define-macro (c.struct . args) `(define-c-struct ,@args))
+(define-macro (c.union . args) `(define-c-union ,@args))
+(define-macro (c.enum . args) `(define-c-enum ,@args))
+
+(define-macro (c.with-heap-alloc . args) `(with-heap-alloc ,@args))
+(define-macro (c.with-alloc . args) `(with-alloc ,@args))
+(define-macro (c.with-c-string . args) `(with-c-string ,@args))
+(define-macro (c.with-c-array . args) `(with-c-array ,@args))
+(define-macro (c.with-c-string-array . args) `(with-c-string-array ,@args))
+(define (c.translate-ffi-type type) (translate-ffi-type type))
