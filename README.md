@@ -34,7 +34,7 @@ sudo dnf install make gcc libffi-devel pkgconf
 ```
 
 ### Build Lext
-    If you dont have the old compatible version of lext then you need to compile the first bootstrap interpreter by running:
+If you dont have the old compatible version of lext then you need to compile the first bootstrap interpreter by running:
 ```bash
 make
 ```
