@@ -215,7 +215,7 @@
 
 ;; cmd-new: allocate and initialize a new Nob_Cmd
 (define (cmd-new)
-  (let ((ptr (c.malloc 24)))
+  (let ((ptr (c.calloc 1 (c.size 'Nob_Cmd))))
     (ffi-set! ptr 'Nob_Cmd '((items . ()) (count . 0) (capacity . 0)))
     ptr))
 
@@ -223,7 +223,7 @@
 (define (cmd-append cmd . args)
   (for-each
     (lambda (arg)
-      (let ((str-ptr-buf (c.malloc 8)))
+      (let ((str-ptr-buf (c.calloc 1 (c.size 'pointer))))
         (ffi-set! str-ptr-buf 'pointer arg)
         (internal-nob-cmd-append cmd 1 str-ptr-buf)
         (c.free str-ptr-buf)))
@@ -284,7 +284,7 @@
 
 ;; read-entire-file: read file into string using string builder FFI
 (define (read-entire-file path)
-  (let ((sb (c.malloc 24)))
+  (let ((sb (c.calloc 1 (c.size 'Nob_String_Builder))))
     (ffi-set! sb 'Nob_String_Builder '((items . ()) (count . 0) (capacity . 0)))
     (let ((success (not (= (internal-nob-read-entire-file path sb) 0))))
       (if success
@@ -360,7 +360,7 @@
 
 ;; read-entire-dir: read directory and return list of file names
 (define (read-entire-dir parent)
-  (let ((children (c.malloc 24)))
+  (let ((children (c.calloc 1 (c.size 'Nob_File_Paths))))
     (ffi-set! children 'Nob_File_Paths '((items . ()) (count . 0) (capacity . 0)))
     (let ((success (not (= (internal-nob-read-entire-dir parent children) 0))))
       (if success
@@ -371,7 +371,7 @@
             (let loop ((i 0))
               (if (< i count)
                   (begin
-                    (let* ((str-ptr (c.internal-c-ptr+ items-ptr (* i 8)))
+                    (let* ((str-ptr (c.internal-c-ptr+ items-ptr (* i (c.size 'pointer))))
                            (str (ffi-deref str-ptr 'string)))
                       (set! result (cons str result))
                       (loop (+ i 1))))))
@@ -614,7 +614,7 @@
 
 ;; --- Command Render and Run Wrappers ---
 (define (cmd-render cmd)
-  (let ((sb (c.malloc 24)))
+  (let ((sb (c.calloc 1 (c.size 'Nob_String_Builder))))
     (ffi-set! sb 'Nob_String_Builder '((items . ()) (count . 0) (capacity . 0)))
     (internal-nob-cmd-render (internal-nob-struct-val cmd 'Nob_Cmd) sb)
     (let* ((sb-struct (ffi-deref sb 'Nob_String_Builder))

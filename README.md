@@ -101,14 +101,14 @@ The `use` function locates and loads the `lib.lext` script inside the specified 
 #### Dynamic Prefix Namespacing
 When you use a module, Lext dynamically prefixes all of its exported symbols with the last path segment of the module string.
 * Loading `(use "stdlib/libnob")` defines its symbols as `libnob.cmd-run`, `libnob.delete-file`, etc.
-* Loading `(use "stdlib/basic")` defines its symbols as `basic.open-namespace`, `basic.for`, etc.
+* Loading `(use "stdlib/basic")` defines its symbols as `basic.for`, `basic.while`, etc.
 * Loading `(use "stdlib/c")` defines its symbols as `c.malloc`, `c.free`, etc.
 
 #### Module Exports
 Inside a module's `lib.lext` file, the public API is declared using the `(export ...)` macro:
 ```scheme
 ;; Inside stdlib/basic/lib.lext
-(export while foreach for capture shift open-namespace use-namespace)
+(export while foreach for capture shift)
 ```
 Only symbols listed in `export` (or all symbols not prefixed with `internal-` if `export` is omitted) will be exported to the caller's environment.
 
@@ -116,12 +116,12 @@ Only symbols listed in `export` (or all symbols not prefixed with `internal-` if
 To strip prefixes and use functions prefix-free:
 1. **Globally (`open-namespace`)**:
    ```scheme
-   (basic.open-namespace "basic") ;; Expose basic symbols globally. Now you can call open-namespace directly!
-   (open-namespace "c")           ;; Expose c symbols globally (e.g. malloc, free)
+   (open-namespace "basic") ;; Expose basic symbols globally
+   (open-namespace "c")     ;; Expose c symbols globally (e.g. malloc, free)
    ```
 2. **Locally / Scoped (`use-namespace`)**:
    ```scheme
-   (basic.use-namespace "libnob"
+   (use-namespace "libnob"
      (cmd-run '("echo" "hello"))) ;; Exposed only within this block
    ```
 
@@ -135,7 +135,7 @@ Lext hashes the absolute path of every evaluated module using a high-performance
 `lext` ships with a set of modular libraries under the `stdlib` directory.
 
 ### 1. `basic` Module (`stdlib/basic`)
-Contains core language extensions for pure Scheme. Loaded via `(use "stdlib/basic")`. Typically, you open its namespace globally using `(basic.open-namespace "basic")`.
+Contains core language extensions for pure Scheme. Loaded via `(use "stdlib/basic")`. Typically, you open its namespace globally using `(open-namespace "basic")`.
 
 #### **Loop Constructs**
 The module provides convenient imperative loops:

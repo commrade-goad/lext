@@ -1,6 +1,6 @@
 (use "stdlib/libnob" "stdlib/basic" "stdlib/c")
 
-(basic.open-namespace "basic")
+(open-namespace "basic")
 (open-namespace "c")
 
 (display "=========================================================\n")

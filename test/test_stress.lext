@@ -1,468 +1,969 @@
 (use "stdlib/basic" "stdlib/c" "stdlib/libnob")
 
-(basic.open-namespace "basic")
+(open-namespace "basic")
 (open-namespace "c")
 
-(display "=========================================================\n")
-(display "   lext Standard Libraries 100% Coverage Stress Test\n")
-(display "=========================================================\n\n")
+;;; ─────────────────────────────────────────────────────────────────────────
+;;; Tiny test-framework
+;;; ─────────────────────────────────────────────────────────────────────────
+(define *pass* 0)
+(define *fail* 0)
+(define *section* "?")
 
-;; Compile helper library for FFI tests
-(let ((cmd-args '("gcc" "-shared" "-fPIC" "test/test_lib.c" "-o" "test/libtest.so")))
-  (if (libnob.cmd-run cmd-args)
-      (display "[INIT] test/libtest.so compiled successfully.\n")
-      (error "Failed to compile test/test_lib.c")))
+(define-macro (section name . body)
+  `(begin
+     (set! *section* ,name)
+     (display (format #f "\n─── ~A ───\n" ,name))
+     ,@body))
+
+(define-macro (check label expr expected)
+  `(let ((got ,expr))
+     (if (equal? got ,expected)
+         (begin
+           (set! *pass* (+ *pass* 1))
+           (display (format #f "  ✓ ~A\n" ,label)))
+         (begin
+           (set! *fail* (+ *fail* 1))
+           (display (format #f "  ✗ ~A  got=~S  want=~S\n" ,label got ,expected))))))
+
+(define-macro (check-true label expr)
+  `(check ,label (if ,expr #t #f) #t))
+
+(define-macro (check-false label expr)
+  `(check ,label (if ,expr #t #f) #f))
+
+(define-macro (check-error label expr)
+  `(let ((caught #f))
+     (catch #t
+       (lambda () ,expr)
+       (lambda (tag info) (set! caught #t)))
+     (if caught
+         (begin (set! *pass* (+ *pass* 1))
+                (display (format #f "  ✓ ~A (error caught)\n" ,label)))
+         (begin (set! *fail* (+ *fail* 1))
+                (display (format #f "  ✗ ~A (no error thrown!)\n" ,label))))))
+
+(display "═══════════════════════════════════════════════════════════════\n")
+(display "         lext Standard Library  — Heavy Stress Suite\n")
+(display "═══════════════════════════════════════════════════════════════\n")
+
+;;; Compile helper C library
+(if (libnob.cmd-run '("gcc" "-shared" "-fPIC" "test/test_lib.c" "-o" "test/libtest.so"))
+    (display "[INIT] test/libtest.so compiled OK\n")
+    (error "Cannot compile test/libtest.so"))
 
 (define libtest (ffi-open "./test/libtest.so"))
-(define libc (ffi-open #f))
-
-;; ============================================================================
-;; PART A: basic.lext & c.lext coverage
-;; ============================================================================
-(display "\n--- [PART A] Testing basic.lext & c.lext ---\n")
-
-;; 1. translate-ffi-type
-(display (format #f "  translate-ffi-type (* char): ~S\n" (translate-ffi-type '(* char))))
-(display (format #f "  translate-ffi-type (array int 10): ~S\n" (translate-ffi-type '(array int 10))))
-
-;; 2. Declarators: define-c-struct, define-c-union, define-c-enum
-(define-c-struct Basic_Point
-  (x int)
-  (y int))
-
-(define-c-union Basic_Union
-  (i int)
-  (d double))
-
-(define-c-enum Basic_Enum
-  :enum-zero
-  :enum-one
-  (enum-five 5)
-  :enum-six)
-
-(display (format #f "  c-size Basic_Point: ~A\n" (c-size 'Basic_Point)))
-(display (format #f "  c-size Basic_Union: ~A\n" (c-size 'Basic_Union)))
-(display (format #f "  Basic_Enum: ~A, ~A, ~A, ~A\n" enum-zero enum-one enum-five enum-six))
-
-;; 3. c-import
-(c-import stress-add-points libtest "add_points" Basic_Point (Basic_Point Basic_Point))
-
-;; 4. c.malloc, c.free, c.realloc, c.calloc
-(let* ((p1 (c.malloc 8))
-       (p2 (c.realloc p1 16)))
-  (display (format #f "  c.malloc/realloc ptr: ~A\n" (c-pointer? p2)))
-  (display (format #f "  c.realloc bounds check: ~A\n" (lext-bounds-check p2 16)))
-  (c.free p2))
-
-(let ((p (c.calloc 4 4)))
-  (display (format #f "  c.calloc bounds check: ~A\n" (lext-bounds-check p 16)))
-  (c.free p))
-
-;; 4b. c.raw-malloc, c.raw-free, c.raw-realloc, c.raw-calloc
-(let* ((p1 (c.raw-malloc 8))
-       (p2 (c.raw-realloc p1 16)))
-  (display (format #f "  c.raw-malloc/realloc ptr: ~A\n" (c-pointer? p2)))
-  (display (format #f "  c.raw-realloc bounds check (should be false): ~A\n" (lext-bounds-check p2 16)))
-  (c.raw-free p2))
-
-(let ((p (c.raw-calloc 4 4)))
-  (display (format #f "  c.raw-calloc bounds check (should be false): ~A\n" (lext-bounds-check p 16)))
-  (c.raw-free p))
-
-;; 4c. lext-register-bounds, lext-unregister-bounds
-(let ((p (c.raw-malloc 8)))
-  (lext-register-bounds p 8)
-  (display (format #f "  lext-register-bounds check: ~A\n" (lext-bounds-check p 8)))
-  (lext-unregister-bounds p)
-  (display (format #f "  lext-unregister-bounds check (should be false): ~A\n" (lext-bounds-check p 8)))
-  (c.raw-free p))
-
-;; 5. internal-c-memcpy, internal-c-memset
-(let ((buf1 (c.malloc 10))
-      (buf2 (c.malloc 10)))
-  (internal-c-memset buf1 65 10) ; fill with 'A'
-  (internal-c-memcpy buf2 buf1 10)
-  (display (format #f "  memset/memcpy check char: ~A\n" (ffi-deref buf2 'char)))
-  (c.free buf1)
-  (c.free buf2))
-
-;; 6. internal-c-ptr+
-(let* ((base (c.malloc 16))
-       (offset-ptr (internal-c-ptr+ base 8)))
-  (display (format #f "  ptr+ offset check: ~A\n" (not (eq? base offset-ptr))))
-  (c.free base))
-
-;; 7. c.deref, c.set!, c.addr
-(let ((ptr (c.malloc 4)))
-  (c.set! ptr 'int 999)
-  (display (format #f "  c.set!/c.deref: ~A\n" (c.deref ptr 'int)))
-  (display (format #f "  c.addr check: ~A\n" (pair? (c.addr (internal-c-tptr 'int ptr)))))
-  (c.free ptr))
-
-;; 8. c.@, c.=, c.&
-(with-heap-alloc (pt Basic_Point)
-  (c.= pt.x 123)
-  (c.= pt.y 456)
-  (display (format #f "  c.=@ x: ~A, y: ~A\n" (c.@ pt.x) (c.@ pt.y)))
-  (let ((addr-val (c.& pt.y)))
-    (display (format #f "  c.& type: ~A\n" (car addr-val)))))
-
-;; 9. with-heap-alloc, with-alloc, with-c-string, with-c-array, with-c-string-array
-(with-alloc (pt Basic_Point)
-  (c.= pt.x 777)
-  (display (format #f "  with-alloc: ~A\n" (c.@ pt.x))))
-
-(with-c-string (s "Test string FFI")
-  (display (format #f "  with-c-string: ~S\n" (c-string-from-ptr s))))
-
-(with-c-array (arr int '(11 22 33))
-  (display (format #f "  with-c-array [1]: ~A\n" (c.@ arr.1))))
-
-(with-c-string-array (s-arr '("foo" "bar"))
-  (display (format #f "  with-c-string-array: ~S\n" (c-string-array->list s-arr))))
-
-;; 9b. Variadic C FFI call (printf)
-(c-import stress-printf libc "printf" int (string) 1)
-(let ((out (capture (stress-printf "Variadic: %s %d %f" "lext" 42 3.14))))
-  (display (format #f "  variadic printf: ~S\n" out)))
-
-;; 10. capture
-(let ((out (capture (display "Stdout captured line!\n"))))
-  (display (format #f "  capture output: ~S\n" out)))
-
-;; 11. c.null-ptr?, c.null-ptr
-(display (format #f "  null-ptr? (null-ptr): ~A\n" (c.null-ptr? (c.null-ptr))))
-(display (format #f "  null-ptr? non-null: ~A\n" (c.null-ptr? 12345)))
-
-;; 12. c.c-cast
-(with-alloc (pt Basic_Point)
-  (let ((casted (c.c-cast pt 'int)))
-    (display (format #f "  c.c-cast type: ~A\n" (car casted)))))
-
-;; 13. open-namespace, use-namespace & loop constructs
-(use-namespace "c"
-  (display (format #f "  use-namespace block (c.malloc): ~A\n" (defined? 'malloc))))
-
-(open-namespace "basic")
-(let ((loop-checked 0))
-  (while (< loop-checked 3)
-    (set! loop-checked (+ loop-checked 1)))
-  (display (format #f "  while loop check: ~A\n" loop-checked)))
-
-(let ((for-checked 0))
-  (for (i 0 4)
-    (set! for-checked (+ for-checked i)))
-  (display (format #f "  for loop check: ~A\n" for-checked)))
-
-(let ((foreach-checked ""))
-  (foreach (x '("a" "b" "c"))
-    (set! foreach-checked (string-append foreach-checked x)))
-  (display (format #f "  foreach loop check: ~S\n" foreach-checked)))
+(define libc    (ffi-open #f))
 
 
-;; ============================================================================
-;; PART B: libnob.lext coverage
-;; ============================================================================
-(display "\n--- [PART B] Testing libnob.lext ---\n")
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; PART A — Allocation Chaos
+;;; malloc / calloc / realloc / free under all conditions
+;;; ═══════════════════════════════════════════════════════════════════════
+(section "PART A — Allocation Chaos"
 
-;; 1. Pointer arithmetic
-(let* ((ptr (c.malloc 8))
-       (addr (c-pointer->integer ptr))
-       (ptr2 (integer->c-pointer addr))
-       (ptr3 (c.raw-ptr+ ptr2 4)))
-  (display (format #f "  Pointer conversions: ~A\n" (eq? ptr ptr2)))
-  (display (format #f "  Pointer add offset: ~A\n" (not (eq? ptr2 ptr3))))
-  (c.free ptr))
+  ;; 1. calloc must zero-initialise
+  (let ((p (c.calloc 32 4)))
+    (let loop ((i 0) (all-zero #t))
+      (if (< i 128)
+          (let ((b (ffi-deref (c.internal-c-ptr+ p i) 'uchar)))
+            (loop (+ i 1) (and all-zero (= b 0))))
+          (begin
+            (check-true "calloc zero-init 128 bytes" all-zero)
+            (c.free p)))))
 
-;; 2. Log API
-(libnob.minimal-log-level-set! 0)
-(display (format #f "  minimal-log-level: ~A\n" (libnob.minimal-log-level)))
-(libnob.log 0 "Testing log output: ~A" "success")
+  ;; 2. realloc chain — grow 10 times and write/read back
+  (let* ((p (c.malloc (* 4 1))))
+    (ffi-set! p 'int 1111)
+    (let loop ((i 1) (ptr p))
+      (if (< i 10)
+          (let* ((new-size (* 4 (+ i 1)))
+                 (np (c.realloc ptr new-size)))
+            (check-true (format #f "realloc step ~A non-null" i) (c-pointer? np))
+            (check-true (format #f "realloc step ~A tracked" i) (lext-bounds-check np new-size))
+            (loop (+ i 1) np))
+          (begin
+            (check "realloc first int survives" (ffi-deref ptr 'int) 1111)
+            (c.free ptr)))))
 
-;; 3. Command API & Render
-(let ((cmd (libnob.cmd-new)))
-  (libnob.cmd-append cmd "echo" "hello" "world")
-  (display (format #f "  Rendered command: ~S\n" (libnob.cmd-render cmd)))
-  
-  ;; Sync and async command execution
-  (display (format #f "  cmd-run sync: ~A\n" (libnob.cmd-run cmd)))
-  (display (format #f "  cmd-run-async: ~A\n" (integer? (libnob.cmd-run-async cmd))))
-  
-  ;; Sync and async with reset
-  (libnob.cmd-append cmd "echo" "reset-test")
-  (display (format #f "  cmd-run-sync-and-reset: ~A\n" (libnob.cmd-run-sync-and-reset cmd)))
-  
-  (libnob.cmd-append cmd "echo" "async-reset-test")
-  (let ((pid (libnob.cmd-run-async-and-reset cmd)))
-    (display (format #f "  cmd-run-async-and-reset pid: ~A\n" (libnob.proc-wait pid))))
-    
-  (libnob.cmd-free cmd))
+  ;; 3. raw variants have NO bounds tracking
+  (let* ((rp (c.raw-malloc 64))
+         (rp2 (c.raw-realloc rp 128)))
+    (check-false "raw-malloc not tracked" (lext-bounds-check rp2 128))
+    (c.raw-free rp2))
 
-;; Command redirects
-(let ((cmd (libnob.cmd-new))
-      (redir (c.malloc 24)))
-  (libnob.cmd-append cmd "echo" "redirect-test")
-  (ffi-set! redir '(struct (pointer fdin) (pointer fdout) (pointer fderr)) '((fdin . ()) (fdout . ()) (fderr . ())))
-  (display (format #f "  cmd-run-sync-redirect: ~A\n" (libnob.cmd-run-sync-redirect cmd redir)))
-  (libnob.cmd-append cmd "echo" "redirect-async")
-  (let ((pid (libnob.cmd-run-async-redirect cmd redir)))
-    (display (format #f "  cmd-run-async-redirect pid: ~A\n" (libnob.proc-wait pid))))
-  (libnob.cmd-free cmd)
-  (c.free redir))
+  ;; 4. malloc-tracked alias
+  (let ((p (c.malloc-tracked 32)))
+    (check-true "malloc-tracked tracked" (c.bounds-check p 32))
+    (c.free-tracked p))
 
-;; 4. File operations & temporary paths
-(let ((temp-path "build/test_temp_file.txt"))
-  (display (format #f "  write-entire-file: ~A\n" (libnob.write-entire-file temp-path "Hello Lext File System!")))
-  (display (format #f "  file-exists: ~A\n" (libnob.file-exists temp-path)))
-  (display (format #f "  read-entire-file: ~S\n" (libnob.read-entire-file temp-path)))
-  (display (format #f "  get-file-type: ~A\n" (libnob.get-file-type temp-path)))
-  
-  ;; Copy and rename
-  (display (format #f "  copy-file: ~A\n" (libnob.copy-file temp-path "build/test_temp_copy.txt")))
-  (display (format #f "  rename: ~A\n" (libnob.rename "build/test_temp_copy.txt" "build/test_temp_renamed.txt")))
-  
-  ;; Path helpers
-  (display (format #f "  path-name: ~S\n" (libnob.path-name temp-path)))
-  (display (format #f "  temp-dir-name: ~S\n" (libnob.temp-dir-name temp-path)))
-  (display (format #f "  temp-file-name: ~S\n" (libnob.temp-file-name temp-path)))
-  (display (format #f "  temp-file-ext: ~S\n" (libnob.temp-file-ext temp-path)))
-  
-  (libnob.delete-file temp-path)
-  (libnob.delete-file "build/test_temp_renamed.txt"))
+  ;; 5. Manual register/unregister round-trip
+  (let ((p (c.raw-malloc 16)))
+    (lext-register-bounds p 16)
+    (check-true  "register-bounds"   (lext-bounds-check p 16))
+    (lext-unregister-bounds p)
+    (check-false "unregister-bounds" (lext-bounds-check p 16))
+    (c.raw-free p))
 
-(display (format #f "  get-current-dir-temp: ~S\n" (libnob.get-current-dir-temp)))
-(display (format #f "  temp-running-executable-path: ~S\n" (libnob.temp-running-executable-path)))
-(display (format #f "  nanos-since-unspecified-epoch: ~A\n" (libnob.nanos-since-unspecified-epoch)))
-(display (format #f "  nprocs: ~A\n" (libnob.nprocs)))
-(display (format #f "  read-entire-dir: ~A\n" (list? (libnob.read-entire-dir "stdlib"))))
+  ;; 6. Stress: 200 simultaneous tracked allocations of dynamic sizes
+  (let ((ptrs '()))
+    (let loop ((i 0))
+      (if (< i 200)
+          (let* ((sz (+ 1 (* i 7)))
+                 (p  (c.calloc 1 sz)))
+            (set! ptrs (cons (cons p sz) ptrs))
+            (loop (+ i 1)))))
+    (let ((all-ok #t))
+      (for-each (lambda (pair)
+                  (unless (lext-bounds-check (car pair) (cdr pair))
+                    (set! all-ok #f)))
+                ptrs)
+      (for-each (lambda (pair) (c.free (car pair))) ptrs)
+      (check-true "200 simultaneous tracked allocs" all-ok)))
 
-;; Directory copy and walk
-(libnob.mkdir-if-not-exists "build/test_dir")
-(libnob.copy-directory-recursively "stdlib/basic" "build/test_dir")
-(let ((walk-count 0))
-  (libnob.walk-dir "build/test_dir" (lambda (p t l) (set! walk-count (+ walk-count 1)) #t))
-  (display (format #f "  walk-dir walked ~A files/dirs\n" walk-count)))
-;; Cleanup copied dir
-(libnob.delete-file "build/test_dir/lib.lext")
-(libnob.delete-file "build/test_dir")
+  ;; 7. raw-free is safe
+  (let ((p (c.raw-malloc 8)))
+    (c.raw-free p)
+    (check-true "raw-free done" #t))
+)
 
-;; String builder padding
-(let ((sb (c.malloc 24)))
-  (ffi-set! sb 'Nob_String_Builder '((items . ()) (count . 0) (capacity . 0)))
-  (libnob.sb-pad-align sb 16)
-  (let* ((sb-struct (ffi-deref sb 'Nob_String_Builder))
-         (count (cdr (assoc 'count sb-struct))))
-    (display (format #f "  sb-pad-align count: ~A\n" count)))
-  (libnob.cmd-free sb))
 
-;; 5. Processes wait & flush API
-(let* ((procs (c.malloc 24)))
-  (ffi-set! procs 'Nob_Procs '((items . ()) (count . 0) (capacity . 0)))
-  ;; Add some dummy child process
-  (let* ((cmd (libnob.cmd-new)))
-    (libnob.cmd-append cmd "sleep" "0.1")
-    (let ((pid (libnob.cmd-run-async-and-reset cmd)))
-      (libnob.procs-append-with-flush procs pid 4)
-      (display (format #f "  procs count after append: ~A\n" (libnob.da-count procs)))
-      (display (format #f "  procs-wait-and-reset: ~A\n" (libnob.procs-wait-and-reset procs))))))
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; PART B — Struct/Union/Array Navigation Torture
+;;; ═══════════════════════════════════════════════════════════════════════
+(section "PART B — Struct / Union / Array Navigation"
 
-;; Pipes API
-(let ((pipe-ptr (c.malloc 8)))
-  (display (format #f "  pipe-create: ~A\n" (libnob.pipe-create pipe-ptr)))
-  (let* ((pipe-struct (ffi-deref pipe-ptr 'Nob_Pipe))
-         (read-fd (cdr (assoc 'read pipe-struct)))
-         (write-fd (cdr (assoc 'write pipe-struct))))
-    (display (format #f "    read fd: ~A, write fd: ~A\n" read-fd write-fd))
-    (libnob.fd-close read-fd)
-    (libnob.fd-close write-fd))
-  (c.free pipe-ptr))
-
-;; Chains API
-(let ((chain (c.calloc 1 40))
-      (cmd (libnob.cmd-new)))
-  (libnob.cmd-append cmd "echo" "chain-hello")
-  (display (format #f "  chain-begin: ~A\n" (libnob.chain-begin chain)))
-  (display (format #f "  chain-cmd: ~A\n" (libnob.chain-cmd chain cmd :err2out #t :dont-reset #t)))
-  (display (format #f "  chain-end: ~A\n" (libnob.chain-end chain :max-procs 4)))
-  (libnob.cmd-free cmd)
-  (c.free chain))
-
-;; Directory iterator API
-(let ((dir-ent (c.malloc 32))) ; size of Nob_Dir_Entry
-  (display (format #f "  dir-entry-open: ~A\n" (libnob.dir-entry-open "stdlib" dir-ent)))
-  (display (format #f "  dir-entry-next: ~A\n" (libnob.dir-entry-next dir-ent)))
-  (libnob.dir-entry-close (ffi-deref dir-ent 'Nob_Dir_Entry))
-  (c.free dir-ent))
-
-;; 6. String Views API
-(let* ((sv1 (libnob.sv-from-cstr "   Trimmed SV!   "))
-       (sv2 (libnob.sv-from-parts (cdr (assoc 'data sv1)) (cdr (assoc 'count sv1))))
-       (trimmed (libnob.sv-trim sv2))
-       (left (libnob.sv-trim-left sv1))
-       (right (libnob.sv-trim-right sv1)))
-  (display (format #f "  sv->string: ~S\n" (libnob.sv->string trimmed)))
-  (display (format #f "  sv-eq: ~A\n" (libnob.sv-eq sv1 sv2)))
-  (display (format #f "  sv-starts-with: ~A\n" (libnob.sv-starts-with sv1 (libnob.sv-from-cstr "   "))))
-  (display (format #f "  sv-ends-with: ~A\n" (libnob.sv-ends-with sv1 (libnob.sv-from-cstr "   "))))
-  (display (format #f "  sv-ends-with-cstr: ~A\n" (libnob.sv-ends-with-cstr sv1 "   "))))
-
-;; String View Chopping
-(let* ((sv (libnob.sv-from-cstr "foo:bar:baz"))
-       (sv-ptr (c.malloc 16)))
-  (ffi-set! sv-ptr 'Nob_String_View sv)
-  (let* ((chopped1 (libnob.sv-chop-left sv-ptr 4))
-         (chopped2 (libnob.sv-chop-right sv-ptr 4)))
-    (display (format #f "  sv-chop-left: ~S\n" (libnob.sv->string chopped1)))
-    (display (format #f "  sv-chop-right: ~S\n" (libnob.sv->string chopped2))))
-  
-  (ffi-set! sv-ptr 'Nob_String_View sv)
-  (let ((chopped3 (libnob.sv-chop-by-delim sv-ptr #\:)))
-    (display (format #f "  sv-chop-by-delim: ~S\n" (libnob.sv->string chopped3))))
-    
-  (ffi-set! sv-ptr 'Nob_String_View sv)
-  (display (format #f "  sv-chop-prefix: ~A\n" (libnob.sv-chop-prefix sv-ptr (libnob.sv-from-cstr "foo"))))
-  (display (format #f "  sv-chop-suffix: ~A\n" (libnob.sv-chop-suffix sv-ptr (libnob.sv-from-cstr "baz"))))
-  (c.free sv-ptr))
-
-;; 7. Temp Allocator API
-(libnob.temp-reset)
-(let* ((checkpoint (libnob.temp-save))
-       (str1 (libnob.temp-strdup "Temp allocated string"))
-       (str2 (libnob.temp-strndup "Temp limit string" 10))
-       (raw-buf (libnob.temp-alloc 100)))
-  (display (format #f "  temp-strdup: ~S\n" str1))
-  (display (format #f "  temp-strndup: ~S\n" str2))
-  (display (format #f "  temp-alloc ptr: ~A\n" (c-pointer? raw-buf)))
-  (libnob.temp-rewind checkpoint))
-
-;; 8. Dynamic Arrays API
-(let ((da (c.malloc 24)))
-  (libnob.da-set! da '((items . ()) (count . 0) (capacity . 0)))
-  (libnob.da-reserve da 10 4) ; reserve for 10 ints
-  (libnob.da-append da 100 int)
-  (libnob.da-append da 200 int)
-  (display (format #f "  da-items ptr: ~A\n" (c-pointer? (libnob.da-items da))))
-  (display (format #f "  da-count: ~A\n" (libnob.da-count da)))
-  (display (format #f "  da-capacity: ~A\n" (libnob.da-capacity da)))
-  (display (format #f "  da-first: ~A\n" (libnob.da-first da 'int)))
-  (display (format #f "  da-last: ~A\n" (libnob.da-last da 'int)))
-  (display (format #f "  da-pop: ~A\n" (libnob.da-pop da 'int)))
-  (libnob.da-free da)
-  (c.free da))
-
-;; 9. basic.shift
-(let ((lst '("x" "y" "z")))
-  (let ((val (basic.shift lst)))
-    (display (format #f "  basic.shift first: ~S\n" val))
-    (display (format #f "  basic.shift remainder: ~S\n" lst))))
-
-;; 10. Rebuild dependencies checks
-(display (format #f "  needs-rebuild: ~A\n" (libnob.needs-rebuild "build/lext" '("src/main.c" "src/nob.c"))))
-(display (format #f "  needs-rebuild?: ~A\n" (libnob.needs-rebuild? "build/lext" "src/main.c")))
-
-;; 11. File Descriptors API
-(let ((fd (libnob.fd-open-for-write "build/test_fd_stress.txt")))
-  (display (format #f "  fd-open-for-write: ~A\n" (>= fd 0)))
-  (libnob.fd-close fd))
-(let ((fd (libnob.fd-open-for-read "build/test_fd_stress.txt")))
-  (display (format #f "  fd-open-for-read: ~A\n" (>= fd 0)))
-  (libnob.fd-close fd))
-(libnob.delete-file "build/test_fd_stress.txt")
-
-;; ============================================================================
-;; PART C: Public Bounds Checking API Tests
-;; ============================================================================
-(display "\n--- [PART C] Testing Public Bounds Checking API ---\n")
-
-(define-macro (assert-error expr)
-  `(let ((has-error #f))
-     (catch #t
-       (lambda ()
-         ,expr)
-       (lambda (tag info)
-         (set! has-error #t)))
-     (if (not has-error)
-         (error (format #f "Expression failed to throw error: ~S" ',expr))
-         (display (format #f "  Expected error caught successfully for: ~S\n" ',expr)))))
-
-(let* ((p-tracked (c.malloc 10))
-       (p-raw (c.raw-malloc 100)))
-  ;; 1. Check registered sizes
-  (display (format #f "  registered size of tracked ptr: ~A\n" (lext-registered-size p-tracked)))
-  (display (format #f "  registered size of raw ptr (should be -1): ~A\n" (lext-registered-size p-raw)))
-  
-  ;; 2. Test c.memset
-  (c.memset p-tracked 65 10) ; okay
-  (assert-error (c.memset p-tracked 65 11)) ; error
-  (c.memset p-raw 65 100) ; okay (raw pointer, no bounds check)
-  
-  ;; 3. Test c.memcpy
-  (c.memcpy p-tracked p-tracked 5) ; okay
-  (assert-error (c.memcpy p-tracked p-tracked 11)) ; error (dest/src out of bounds)
-  (c.memcpy p-raw p-raw 50) ; okay (raw pointer, no bounds check)
-  
-  ;; 4. Test c.ptr+
-  (let ((offset-ptr (c.ptr+ p-tracked 4)))
-    (display (format #f "  c.ptr+ offset registered size: ~A\n" (lext-registered-size offset-ptr)))
-    (c.memset offset-ptr 66 6) ; okay (4 + 6 = 10)
-    (assert-error (c.memset offset-ptr 66 7))) ; error (4 + 7 = 11 > 10)
-    
-  (assert-error (c.ptr+ p-tracked 11)) ; error (offset out of bounds)
-  (assert-error (c.ptr+ p-tracked -1)) ; error (offset out of bounds)
-  
-  ;; 5. Test c.deref and c.set! (and c.@ / c.=)
-  (define-c-struct Test_Point
+  ;; Nested struct definition
+  (define-c-struct Vec2
     (x int)
     (y int))
-    
-  (let ((pt (c.c-cast p-tracked 'Test_Point)))
-    (c.set! pt 'Test_Point 123 'x) ; okay
-    (c.set! pt 'Test_Point 456 'y) ; okay
-    (display (format #f "  c.deref x: ~A, y: ~A\n" (c.deref pt 'Test_Point 'x) (c.deref pt 'Test_Point 'y)))
-    
-    (let ((pt-out (c.ptr+ pt 4))) ; remaining size = 6. Test_Point needs 8 bytes.
-      (assert-error (c.deref pt-out 'Test_Point 'y)))) ; error (y is at offset 4 of pt-out, needing 4 bytes -> total 8 bytes, but remaining size is 6)
-      
-  ;; 6. Test raw variants (c.raw-memcpy, c.raw-memset, c.raw-ptr+)
-  (c.raw-memset p-raw 67 50)
-  (c.raw-memcpy p-raw p-raw 50)
-  (let ((offset-raw (c.raw-ptr+ p-raw 50)))
-    (display (format #f "  c.raw-ptr+ registered size (should be -1): ~A\n" (lext-registered-size offset-raw)))
-    (c.raw-memset offset-raw 68 10))
 
-  ;; 7. Test prefix-consistent aliases (c.tptr, c.size, etc.)
-  (let ((pt-tptr (c.tptr 'Test_Point p-tracked)))
-    (display (format #f "  c.tptr?: ~A\n" (c.tptr? pt-tptr)))
-    (display (format #f "  c.tptr-type: ~A\n" (c.tptr-type pt-tptr)))
-    (display (format #f "  c.tptr-ptr check: ~A\n" (c-pointer? (c.tptr-ptr pt-tptr))))
-    (display (format #f "  c.size: ~A\n" (c.size 'Test_Point))))
+  (define-c-struct Rect
+    (top_left     Vec2)
+    (bottom_right Vec2))
 
-  (let ((str-ptr (c.string->c-string "Hello consistent!")))
-    (display (format #f "  c.string-from-ptr: ~S\n" (c.string-from-ptr str-ptr)))
-    (c.free str-ptr))
+  (define-c-union IorF
+    (i int)
+    (f float))
 
-  ;; 8. Test prefix-consistent macros (c.with-alloc, c.with-c-string, etc.)
-  (c.with-alloc (pt-ns Test_Point)
-    (c.set! pt-ns 'Test_Point 999 'x)
-    (display (format #f "  c.with-alloc: ~A\n" (c.deref pt-ns 'Test_Point 'x))))
+  ;; 1. Simple struct read/write via with-alloc
+  (with-alloc (v Vec2)
+    (c.= v.x 42)
+    (c.= v.y -7)
+    (check "struct write/read x" (c.@ v.x) 42)
+    (check "struct write/read y" (c.@ v.y) -7))
 
-  (c.with-c-string (s-ns "Namespaced string FFI")
-    (display (format #f "  c.with-c-string: ~S\n" (c.string-from-ptr s-ns))))
+  ;; 2. with-heap-alloc same test
+  (with-heap-alloc (v2 Vec2)
+    (c.= v2.x 100)
+    (c.= v2.y 200)
+    (check "heap-alloc x" (c.@ v2.x) 100)
+    (check "heap-alloc y" (c.@ v2.y) 200))
 
-  (c.with-c-array (arr-ns int '(44 55 66))
-    (display (format #f "  c.with-c-array [1]: ~A\n" (c.deref arr-ns 'int 1))))
+  ;; 3. Nested struct fields via ffi-deref
+  (let ((r (c.calloc 1 (c.size 'Rect))))
+    (ffi-set! r 'Rect `((top_left . ((x . 10) (y . 20)))
+                         (bottom_right . ((x . 300) (y . 400)))))
+    (let* ((s  (ffi-deref r 'Rect))
+           (tl (cdr (assoc 'top_left s)))
+           (br (cdr (assoc 'bottom_right s))))
+      (check "nested tl.x"  (cdr (assoc 'x tl)) 10)
+      (check "nested tl.y"  (cdr (assoc 'y tl)) 20)
+      (check "nested br.x" (cdr (assoc 'x br)) 300)
+      (check "nested br.y" (cdr (assoc 'y br)) 400))
+    (c.free r))
 
-  (c.with-c-string-array (s-arr-ns '("ns1" "ns2"))
-    (display (format #f "  c.with-c-string-array: ~S\n" (c.string-array->list s-arr-ns))))
+  ;; 4. Union overlapping bytes
+  (let ((u (c.calloc 1 (c.size 'IorF))))
+    (ffi-set! u 'int 42)
+    (check "union int member" (ffi-deref u 'int) 42)
+    (c.free u))
 
-  (let ((out-ns (basic.capture (display "Stdout consistent!\n"))))
-    (display (format #f "  basic.capture output: ~S\n" out-ns)))
+  ;; 5. Array indexing via with-c-array
+  (with-c-array (arr int '(10 20 30 40 50))
+    (check "c-array[0]" (c.@ arr.0) 10)
+    (check "c-array[2]" (c.@ arr.2) 30)
+    (check "c-array[4]" (c.@ arr.4) 50))
 
-  (c.free p-tracked)
-  (c.raw-free p-raw))
+  ;; 6. String array round-trip
+  (with-c-string-array (sa '("alpha" "beta" "gamma"))
+    (let ((lst (c.string-array->list sa)))
+      (check "string-array[0]" (car lst)   "alpha")
+      (check "string-array[1]" (cadr lst)  "beta")
+      (check "string-array[2]" (caddr lst) "gamma")))
 
-;; 12. clean up helper dynamic lib
+  ;; 7. c.size cross-check
+  (check-true "c.size Nob_Cmd > 0"           (> (c.size 'Nob_Cmd) 0))
+  (check-true "c.size Nob_String_Builder > 0" (> (c.size 'Nob_String_Builder) 0))
+  (check-true "c.size pointer == 8"           (= (c.size 'pointer) 8))
+  (check-true "c.size int == 4"               (= (c.size 'int) 4))
+  (check-true "c.size ulong == 8"             (= (c.size 'ulong) 8))
+
+  ;; 8. c-cast preserves pointer identity
+  (let* ((p   (c.calloc 1 (c.size 'Vec2)))
+         (tp  (c.tptr 'Vec2 p))
+         (cst (c.c-cast tp 'Rect)))
+    (check-true "c-cast tptr?"    (c.tptr? cst))
+    (check      "c-cast type"     (c.tptr-type cst) 'Rect)
+    (check-true "c-cast ptr same" (equal? (c.tptr-ptr cst) p))
+    (c.free p))
+)
+
+
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; PART C — FFI Edge Cases (variadic, callbacks, struct-by-value)
+;;; ═══════════════════════════════════════════════════════════════════════
+(section "PART C — FFI Edge Cases"
+
+  (define-c-struct Basic_Point (x int) (y int))
+  (define-c-union  Basic_Union (i int) (f float))
+
+  ;; Import from libtest
+  (c-import ffi-add-points  libtest "add_points"   Basic_Point (Basic_Point Basic_Point))
+  (c-import ffi-print-union libtest "print_union"  double      (Basic_Union int))
+
+  ;; 1. Struct-by-value FFI call
+  (let* ((p1     '((x . 3)  (y . 4)))
+         (p2     '((x . 10) (y . 20)))
+         (result (ffi-add-points p1 p2)))
+    (check "add_points x" (cdr (assoc 'x result)) 13)
+    (check "add_points y" (cdr (assoc 'y result)) 24))
+
+  ;; 2. Union FFI call — use a pointer-backed union for safety
+  (let* ((u-ptr (c.calloc 1 (c.size 'IorF))))
+    (ffi-set! u-ptr 'int 99)
+    (let ((v (ffi-deref u-ptr 'int)))
+      (check "union int read-back" v 99))
+    (c.free u-ptr))
+
+  ;; 3. Variadic printf via FFI (variadic nfixed=1)
+  (c-import ffi-printf libc "printf" int (string) 1)
+  (let ((out (capture (ffi-printf "variadic %s %d %.2f\n" "ok" 7 2.71))))
+    (check-true "variadic printf captured" (string? out)))
+
+  ;; 4. translate-ffi-type table completeness
+  (check "t-f-t pointer"      (translate-ffi-type 'pointer)         'pointer)
+  (check "t-f-t (* char)"     (translate-ffi-type '(* char))        'pointer)
+  (check "t-f-t size_t"       (translate-ffi-type 'size_t)          'ulong)
+  (check "t-f-t void"         (translate-ffi-type 'void)            'void)
+  (check "t-f-t float"        (translate-ffi-type 'float)           'float)
+  (check "t-f-t double"       (translate-ffi-type 'double)          'double)
+  (check "t-f-t int8"         (translate-ffi-type 'int8)            'int8)
+  (check "t-f-t uint64"       (translate-ffi-type 'uint64)          'uint64)
+  (check "t-f-t (array i 3)"  (translate-ffi-type '(array int 3))   '(array int 3))
+
+  ;; 5. null-ptr predicates
+  (check-true  "null-ptr? ()"  (c.null-ptr? (c.null-ptr)))
+  (check-false "null-ptr? int" (c.null-ptr? 12345))
+)
+
+
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; PART D — Bounds Sentinel Hammering
+;;; ═══════════════════════════════════════════════════════════════════════
+(section "PART D — Bounds Sentinel Hammering"
+
+  (let* ((p  (c.malloc 20))
+         (rp (c.raw-malloc 20)))
+
+    ;; 1. exact-fit memset passes
+    (c.memset p 0 20)
+    (check-true "memset exact-fit" #t)
+
+    ;; 2. over-size memset must error
+    (check-error "memset overrun" (c.memset p 0 21))
+
+    ;; 3. exact-fit memcpy passes
+    (c.memcpy p p 20)
+    (check-true "memcpy exact-fit" #t)
+
+    ;; 4. over-size memcpy must error
+    (check-error "memcpy overrun" (c.memcpy p p 21))
+
+    ;; 5. ptr+ in-bounds
+    (let ((q (c.ptr+ p 10)))
+      (check-true "ptr+ in-bounds registered" (lext-bounds-check q 10))
+      (c.memset q 0 10)
+      (check-true "memset at offset 10 exact" #t)
+      (check-error "memset at offset 10 overrun" (c.memset q 0 11)))
+
+    ;; 6. ptr+ negative offset must error
+    (check-error "ptr+ negative" (c.ptr+ p -1))
+
+    ;; 7. ptr+ beyond must error
+    (check-error "ptr+ beyond" (c.ptr+ p 21))
+
+    ;; 8. raw variants bypass all checks
+    (c.raw-memset rp 0 20)
+    (c.raw-memcpy rp rp 20)
+    (let ((rq (c.raw-ptr+ rp 10)))
+      (c.raw-memset rq 0 10)
+      (check-true "raw bypasses bounds" #t))
+
+    ;; 9. deref at edge of struct
+    (define-c-struct Edge_S (a int) (b int))
+    (let* ((ep  (c.malloc (c.size 'Edge_S)))
+           (etp (c.tptr 'Edge_S ep)))
+      (c.set! ep 'Edge_S '((a . 11) (b . 22)))
+      (check "deref struct a" (c.deref ep 'Edge_S 'a) 11)
+      (check "deref struct b" (c.deref ep 'Edge_S 'b) 22)
+      ;; partial pointer: only 1 byte remaining for a 4-byte field — error
+      (let ((tail (c.ptr+ ep (- (c.size 'Edge_S) 1))))
+        (check-error "deref past struct" (c.deref tail 'int)))
+      (c.free ep))
+
+    (c.free p)
+    (c.raw-free rp))
+
+  ;; 10. Hammer: 50 sequential alloc/write/check/free cycles
+  (let loop ((i 0) (all-ok #t))
+    (if (< i 50)
+        (let* ((sz (* (+ i 1) 3))
+               (p  (c.calloc 1 sz)))
+          (c.memset p (modulo i 128) sz)
+          (let ((ok (lext-bounds-check p sz)))
+            (c.free p)
+            (loop (+ i 1) (and all-ok ok))))
+        (check-true "50 alloc/write/check/free cycles" all-ok)))
+)
+
+
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; PART E — String View Gauntlet (all sv-* ops)
+;;; ═══════════════════════════════════════════════════════════════════════
+(section "PART E — String View Gauntlet"
+
+  ;; 1. sv-from-cstr / sv->string
+  (let ((sv (libnob.sv-from-cstr "Hello, World!")))
+    (check "sv-from-cstr" (libnob.sv->string sv) "Hello, World!"))
+
+  ;; 2. sv-trim
+  (let ((sv (libnob.sv-from-cstr "  spaces  ")))
+    (check "sv-trim" (libnob.sv->string (libnob.sv-trim sv)) "spaces"))
+
+  ;; 3. sv-trim-left / sv-trim-right
+  (let ((sv (libnob.sv-from-cstr "  left  ")))
+    (check "sv-trim-left"  (libnob.sv->string (libnob.sv-trim-left  sv)) "left  ")
+    (check "sv-trim-right" (libnob.sv->string (libnob.sv-trim-right sv)) "  left"))
+
+  ;; 4. sv-eq
+  (let ((a (libnob.sv-from-cstr "foo"))
+        (b (libnob.sv-from-cstr "foo"))
+        (c (libnob.sv-from-cstr "bar")))
+    (check-true  "sv-eq equal"   (libnob.sv-eq a b))
+    (check-false "sv-eq unequal" (libnob.sv-eq a c)))
+
+  ;; 5. sv-starts-with / sv-ends-with / sv-ends-with-cstr
+  (let ((sv  (libnob.sv-from-cstr "foobar"))
+        (pre (libnob.sv-from-cstr "foo"))
+        (suf (libnob.sv-from-cstr "bar"))
+        (other (libnob.sv-from-cstr "xyz")))
+    (check-true  "sv-starts-with"       (libnob.sv-starts-with sv pre))
+    (check-false "sv-starts-with false" (libnob.sv-starts-with sv other))
+    (check-true  "sv-ends-with"         (libnob.sv-ends-with sv suf))
+    (check-true  "sv-ends-with-cstr"    (libnob.sv-ends-with-cstr sv "bar")))
+
+  ;; 6. sv-chop-left / sv-chop-right (mutating via pointer)
+  (let* ((sv     (libnob.sv-from-cstr "ABCDEFGH"))
+         (sv-ptr (c.calloc 1 (c.size 'Nob_String_View))))
+    (ffi-set! sv-ptr 'Nob_String_View sv)
+    (let ((left-part (libnob.sv-chop-left sv-ptr 3)))
+      (check "sv-chop-left chopped"    (libnob.sv->string left-part) "ABC")
+      (check "sv-chop-left remaining"  (libnob.sv->string (ffi-deref sv-ptr 'Nob_String_View)) "DEFGH"))
+    (ffi-set! sv-ptr 'Nob_String_View (libnob.sv-from-cstr "ABCDEFGH"))
+    (let ((right-part (libnob.sv-chop-right sv-ptr 3)))
+      (check "sv-chop-right chopped"   (libnob.sv->string right-part) "FGH")
+      (check "sv-chop-right remaining" (libnob.sv->string (ffi-deref sv-ptr 'Nob_String_View)) "ABCDE"))
+    (c.free sv-ptr))
+
+  ;; 7. sv-chop-by-delim — chain of delimiters
+  (let* ((sv     (libnob.sv-from-cstr "one:two:three"))
+         (sv-ptr (c.calloc 1 (c.size 'Nob_String_View))))
+    (ffi-set! sv-ptr 'Nob_String_View sv)
+    (let* ((t1 (libnob.sv->string (libnob.sv-chop-by-delim sv-ptr #\:)))
+           (t2 (libnob.sv->string (libnob.sv-chop-by-delim sv-ptr #\:)))
+           (t3 (libnob.sv->string (ffi-deref sv-ptr 'Nob_String_View))))
+      (check "chop-by-delim t1" t1 "one")
+      (check "chop-by-delim t2" t2 "two")
+      (check "chop-by-delim t3" t3 "three"))
+    (c.free sv-ptr))
+
+  ;; 8. sv-chop-prefix / sv-chop-suffix
+  (let* ((sv     (libnob.sv-from-cstr "prefix_content_suffix"))
+         (sv-ptr (c.calloc 1 (c.size 'Nob_String_View)))
+         (pre-sv (libnob.sv-from-cstr "prefix_"))
+         (suf-sv (libnob.sv-from-cstr "_suffix")))
+    (ffi-set! sv-ptr 'Nob_String_View sv)
+    (check-true "chop-prefix success" (libnob.sv-chop-prefix sv-ptr pre-sv))
+    (check-true "chop-suffix success" (libnob.sv-chop-suffix sv-ptr suf-sv))
+    (check "chop prefix+suffix remainder"
+           (libnob.sv->string (ffi-deref sv-ptr 'Nob_String_View)) "content")
+    (c.free sv-ptr))
+
+  ;; 9. sv-from-parts round-trip
+  (let* ((base-sv  (libnob.sv-from-cstr "data_here"))
+         (data-ptr (cdr (assoc 'data  base-sv)))
+         (cnt      (cdr (assoc 'count base-sv)))
+         (sv2      (libnob.sv-from-parts data-ptr cnt)))
+    (check "sv-from-parts" (libnob.sv->string sv2) "data_here"))
+)
+
+
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; PART F — Dynamic Array Torture
+;;; ═══════════════════════════════════════════════════════════════════════
+(section "PART F — Dynamic Array Torture"
+
+  ;; 1. int array: append 100 ints, verify count and values
+  (let ((da (c.calloc 1 (c.size 'Nob_Dynamic_Array))))
+    (libnob.da-set! da '((items . ()) (count . 0) (capacity . 0)))
+    (let loop ((i 0))
+      (if (< i 100)
+          (begin
+            (libnob.da-append da i int)
+            (loop (+ i 1)))))
+    (check "da 100 appends count"  (libnob.da-count da) 100)
+    (check "da-first after 100"    (libnob.da-first da 'int) 0)
+    (check "da-last after 100"     (libnob.da-last  da 'int) 99)
+
+    (let loop ((i 99) (ok #t))
+      (if (>= i 0)
+          (let ((val (libnob.da-pop da 'int)))
+            (loop (- i 1) (and ok (= val i))))
+          (check-true "da-pop all 100 in-order" ok)))
+    (check "da empty after 100 pops" (libnob.da-count da) 0)
+    (check-error "da-pop empty errors" (libnob.da-pop da 'int))
+    (libnob.da-free da)
+    (c.free da))
+
+  ;; 2. ulong array
+  (let ((da (c.calloc 1 (c.size 'Nob_Dynamic_Array))))
+    (libnob.da-set! da '((items . ()) (count . 0) (capacity . 0)))
+    (libnob.da-append da 9999999999 ulong)
+    (libnob.da-append da 0          ulong)
+    (check "da ulong first" (libnob.da-first da 'ulong) 9999999999)
+    (check "da ulong last"  (libnob.da-last  da 'ulong) 0)
+    (libnob.da-free da)
+    (c.free da))
+
+  ;; 3. Reserve before appending
+  (let ((da (c.calloc 1 (c.size 'Nob_Dynamic_Array))))
+    (libnob.da-set! da '((items . ()) (count . 0) (capacity . 0)))
+    (libnob.da-reserve da 256 4)
+    (check-true "da reserved capacity >= 256" (>= (libnob.da-capacity da) 256))
+    (libnob.da-free da)
+    (c.free da))
+
+  ;; 4. da-items pointer is valid c-pointer after reserve
+  (let ((da (c.calloc 1 (c.size 'Nob_Dynamic_Array))))
+    (libnob.da-set! da '((items . ()) (count . 0) (capacity . 0)))
+    (libnob.da-reserve da 10 4)
+    (check-true "da-items c-pointer?" (c-pointer? (libnob.da-items da)))
+    (libnob.da-free da)
+    (c.free da))
+)
+
+
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; PART G — Temp Allocator Stress
+;;; ═══════════════════════════════════════════════════════════════════════
+(section "PART G — Temp Allocator Stress"
+
+  ;; 1. Fresh reset baseline
+  (libnob.temp-reset)
+  (let ((base (libnob.temp-save)))
+    (check-true "temp-save returns number" (number? base))
+
+    ;; 2. Nested saves: 5 levels deep
+    (let loop ((depth 0) (checkpoints (list base)))
+      (if (< depth 5)
+          (begin
+            (libnob.temp-strdup (string-append "level-" (number->string depth)))
+            (loop (+ depth 1) (cons (libnob.temp-save) checkpoints)))
+          (let unwind ((cps checkpoints))
+            (if (not (null? cps))
+                (begin
+                  (libnob.temp-rewind (car cps))
+                  (unwind (cdr cps)))))))
+    (check-true "nested temp save/rewind" #t))
+
+  ;; 3. temp-strdup correctness
+  (libnob.temp-reset)
+  (let ((s1 (libnob.temp-strdup "hello")))
+    (check "temp-strdup content" s1 "hello"))
+
+  ;; 4. temp-strndup truncation
+  (let ((s2 (libnob.temp-strndup "hello-world" 5)))
+    (check "temp-strndup truncated" s2 "hello"))
+
+  ;; 5. temp-alloc returns pointer
+  (let ((p (libnob.temp-alloc 64)))
+    (check-true "temp-alloc c-pointer?" (c-pointer? p)))
+
+  ;; 6. Explosive strdup: 1000 small strings
+  (libnob.temp-reset)
+  (let ((cp (libnob.temp-save)))
+    (let loop ((i 0))
+      (if (< i 1000)
+          (begin
+            (libnob.temp-strdup (number->string i))
+            (loop (+ i 1)))))
+    (libnob.temp-rewind cp)
+    (check-true "1000-strdup temp stress" #t))
+)
+
+
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; PART H — Namespace Integrity Gauntlet
+;;; ═══════════════════════════════════════════════════════════════════════
+(section "PART H — Namespace Integrity Gauntlet"
+
+  ;; 1. Prefixed symbols are always defined
+  (check-true "c.malloc defined"          (defined? 'c.malloc))
+  (check-true "c.free defined"            (defined? 'c.free))
+  (check-true "c.calloc defined"          (defined? 'c.calloc))
+  (check-true "c.realloc defined"         (defined? 'c.realloc))
+  (check-true "libnob.cmd-new defined"    (defined? 'libnob.cmd-new))
+  (check-true "libnob.sv-eq defined"      (defined? 'libnob.sv-eq))
+  (check-true "basic.while defined"       (defined? 'basic.while))
+  (check-true "basic.for defined"         (defined? 'basic.for))
+  (check-true "basic.foreach defined"     (defined? 'basic.foreach))
+  (check-true "basic.capture defined"     (defined? 'basic.capture))
+  (check-true "basic.shift defined"       (defined? 'basic.shift))
+
+  ;; 2. Internal symbols must NOT be exported via prefix
+  (check-false "internal-nob not exported"
+               (defined? 'libnob.internal-nob-cmd-append))
+  (check-false "internal-libnob not exported"
+               (defined? 'libnob.internal-libnob))
+
+  ;; 3. open-namespace strips prefix globally — basic already opened
+  (let ((sum 0))
+    (for (i 0 5) (set! sum (+ sum i)))
+    (check "bare for after open-namespace basic" sum 10))
+
+  (let ((res ""))
+    (foreach (x '("x" "y" "z"))
+      (set! res (string-append res x)))
+    (check "bare foreach" res "xyz"))
+
+  (let ((n 3))
+    (while (> n 0) (set! n (- n 1)))
+    (check "bare while" n 0))
+
+  ;; 4. use-namespace scope is strictly contained
+  (check-false "cmd-run NOT in scope before" (defined? 'cmd-run))
+  (use-namespace "libnob"
+    (check-true "cmd-run IN scope" (defined? 'cmd-run))
+    (check-true "sv-eq IN scope"   (defined? 'sv-eq)))
+  (check-false "cmd-run OUT of scope after" (defined? 'cmd-run))
+
+  ;; 5. open-namespace c — malloc goes bare
+  (open-namespace "c")
+  (check-true "malloc bare after open-namespace c" (defined? 'malloc))
+  (check-true "free bare"    (defined? 'free))
+  (check-true "calloc bare"  (defined? 'calloc))
+  (check-true "realloc bare" (defined? 'realloc))
+
+  ;; 6. Re-open-namespace libnob and verify full set
+  (open-namespace "libnob")
+  (check-true "cmd-new bare" (defined? 'cmd-new))
+  (check-true "sv-trim bare" (defined? 'sv-trim))
+
+  ;; 7. open-namespace is idempotent
+  (open-namespace "c")
+  (open-namespace "c")
+  (check-true "double open-namespace idempotent" (defined? 'malloc))
+
+  ;; 8. Consecutive use-namespace calls
+  (use-namespace "basic"
+    (check-true "basic in use-namespace 1" (defined? 'capture)))
+  (use-namespace "libnob"
+    (check-true "libnob in use-namespace 2" (defined? 'da-count)))
+)
+
+
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; PART I — libnob File I/O Warfare
+;;; ═══════════════════════════════════════════════════════════════════════
+(section "PART I — libnob File I/O Warfare"
+
+  (libnob.mkdir-if-not-exists "build/stress_io")
+
+  ;; 1. Write and read back a large string (512-number sequence)
+  (let* ((big-str (let loop ((i 0) (acc ""))
+                    (if (< i 512)
+                        (loop (+ i 1) (string-append acc (number->string i) " "))
+                        acc)))
+         (path "build/stress_io/big.txt"))
+    (check-true "write big file" (libnob.write-entire-file path big-str))
+    (check-true "big file exists" (not (= (libnob.file-exists path) 0)))
+    (let ((contents (libnob.read-entire-file path)))
+      (check-true "read back big file string?" (string? contents))
+      (check "read back content length" (string-length contents) (string-length big-str))))
+
+  ;; 2. Copy and rename pipeline
+  (libnob.copy-file "build/stress_io/big.txt" "build/stress_io/big_copy.txt")
+  (check-true "copy exists" (not (= (libnob.file-exists "build/stress_io/big_copy.txt") 0)))
+  (libnob.rename "build/stress_io/big_copy.txt" "build/stress_io/big_renamed.txt")
+  (check-true  "renamed exists"        (not (= (libnob.file-exists "build/stress_io/big_renamed.txt") 0)))
+  (check-false "original gone" (not (= (libnob.file-exists "build/stress_io/big_copy.txt") 0)))
+
+  ;; 3. File type detection
+  (check "file type regular"   (libnob.get-file-type "build/stress_io/big.txt") 'regular)
+  (check "file type directory" (libnob.get-file-type "build/stress_io") 'directory)
+
+  ;; 4. Path name helpers
+  (let ((name (libnob.path-name "build/stress_io/big.txt")))
+    (check-true "path-name non-empty" (and (string? name) (> (string-length name) 0))))
+  (let ((dname (libnob.temp-dir-name "build/stress_io/big.txt")))
+    (check-true "temp-dir-name non-empty" (and (string? dname) (> (string-length dname) 0))))
+  (let ((fname (libnob.temp-file-name "build/stress_io/big.txt")))
+    (check-true "temp-file-name non-empty" (and (string? fname) (> (string-length fname) 0))))
+  (let ((ext (libnob.temp-file-ext "build/stress_io/big.txt")))
+    (check-true "temp-file-ext non-empty" (and (string? ext) (> (string-length ext) 0))))
+
+  ;; 5. get-current-dir-temp
+  (let ((cwd (libnob.get-current-dir-temp)))
+    (check-true "get-current-dir-temp" (and (string? cwd) (> (string-length cwd) 0))))
+
+  ;; 6. read-entire-dir returns list
+  (let ((entries (libnob.read-entire-dir "build/stress_io")))
+    (check-true "read-entire-dir list?"      (list? entries))
+    (check-true "read-entire-dir non-empty"  (> (length entries) 0)))
+
+  ;; 7. Walk dir and count
+  (let ((count 0))
+    (libnob.walk-dir "build/stress_io"
+                     (lambda (path type level)
+                       (set! count (+ count 1)) #t))
+    (check-true "walk-dir walked >= 1 file" (>= count 1)))
+
+  ;; 8. nprocs and epoch time
+  (check-true "nprocs >= 1"              (>= (libnob.nprocs) 1))
+  (check-true "nanos-since-epoch > 0"    (> (libnob.nanos-since-unspecified-epoch) 0))
+
+  ;; 9. needs-rebuild? logic
+  (let ((r (libnob.needs-rebuild? "build/lext" "src/main.c")))
+    (check-true "needs-rebuild? returns bool" (boolean? r)))
+
+  ;; 10. Directory recursive copy + walk
+  (libnob.mkdir-if-not-exists "build/stress_io/sub")
+  (libnob.copy-directory-recursively "stdlib/basic" "build/stress_io/sub")
+  (let ((sub-entries (libnob.read-entire-dir "build/stress_io/sub")))
+    (check-true "sub dir non-empty after recursive copy"
+                (and (list? sub-entries) (> (length sub-entries) 0))))
+
+  ;; Cleanup
+  (libnob.delete-file "build/stress_io/big.txt")
+  (libnob.delete-file "build/stress_io/big_renamed.txt")
+  (libnob.delete-file "build/stress_io/sub/lib.lext")
+  (libnob.delete-file "build/stress_io/sub")
+  (libnob.delete-file "build/stress_io")
+)
+
+
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; PART J — Command, Pipe, and Proc Torture
+;;; ═══════════════════════════════════════════════════════════════════════
+(section "PART J — Command / Pipe / Proc Torture"
+
+  ;; 1. cmd-new / cmd-append / cmd-render / cmd-free
+  (let ((cmd (libnob.cmd-new)))
+    (libnob.cmd-append cmd "echo" "hello" "world")
+    (let ((rendered (libnob.cmd-render cmd)))
+      (check-true "cmd-render non-empty" (and (string? rendered) (> (string-length rendered) 0))))
+    (libnob.cmd-free cmd))
+
+  ;; 2. cmd-run with list shorthand (sync)
+  (check-true "cmd-run list sync" (libnob.cmd-run '("echo" "lext-run-ok")))
+
+  ;; 3. cmd-run-sync explicit
+  (let ((cmd (libnob.cmd-new)))
+    (libnob.cmd-append cmd "echo" "sync-explicit")
+    (check-true "cmd-run-sync" (libnob.cmd-run-sync cmd))
+    (libnob.cmd-free cmd))
+
+  ;; 4. cmd-run-async + proc-wait
+  (let ((cmd (libnob.cmd-new)))
+    (libnob.cmd-append cmd "true")
+    (let ((pid (libnob.cmd-run-async cmd)))
+      (check-true "cmd-run-async pid integer" (integer? pid))
+      (check-true "proc-wait success"         (libnob.proc-wait pid)))
+    (libnob.cmd-free cmd))
+
+  ;; 5. cmd-run-sync-and-reset
+  (let ((cmd (libnob.cmd-new)))
+    (libnob.cmd-append cmd "echo" "reset-sync")
+    (check-true "cmd-run-sync-and-reset" (libnob.cmd-run-sync-and-reset cmd))
+    (libnob.cmd-free cmd))
+
+  ;; 6. cmd-run-async-and-reset + proc-wait
+  (let ((cmd (libnob.cmd-new)))
+    (libnob.cmd-append cmd "sleep" "0")
+    (let ((pid (libnob.cmd-run-async-and-reset cmd)))
+      (check-true "async-and-reset proc-wait" (libnob.proc-wait pid)))
+    (libnob.cmd-free cmd))
+
+  ;; 7. Pipe creation
+  (let ((pipe-ptr (c.calloc 1 (c.size 'Nob_Pipe))))
+    (check-true "pipe-create" (libnob.pipe-create pipe-ptr))
+    (let* ((ps      (ffi-deref pipe-ptr 'Nob_Pipe))
+           (read-fd (cdr (assoc 'read  ps)))
+           (wrt-fd  (cdr (assoc 'write ps))))
+      (check-true "pipe read fd valid"  (>= read-fd 0))
+      (check-true "pipe write fd valid" (>= wrt-fd  0))
+      (libnob.fd-close read-fd)
+      (libnob.fd-close wrt-fd))
+    (c.free pipe-ptr))
+
+  ;; 8. Procs append + flush
+  (let ((procs (c.calloc 1 (c.size 'Nob_Procs))))
+    (ffi-set! procs 'Nob_Procs '((items . ()) (count . 0) (capacity . 0)))
+    (let* ((cmd (libnob.cmd-new)))
+      (libnob.cmd-append cmd "sleep" "0")
+      (let ((pid (libnob.cmd-run-async-and-reset cmd)))
+        (libnob.procs-append-with-flush procs pid 4)
+        (check-true "procs count > 0"     (> (libnob.da-count procs) 0))
+        (check-true "procs-wait-and-reset" (libnob.procs-wait-and-reset procs)))
+      (libnob.cmd-free cmd))
+    (c.free procs))
+
+  ;; 9. Chain API: echo via chain-begin/chain-cmd/chain-end
+  (let ((chain (c.calloc 1 (c.size 'Nob_Chain)))
+        (cmd   (libnob.cmd-new)))
+    (libnob.cmd-append cmd "echo" "chain-test")
+    (check-true "chain-begin" (libnob.chain-begin chain))
+    (check-true "chain-cmd"   (libnob.chain-cmd chain cmd))
+    (check-true "chain-end"   (libnob.chain-end chain))
+    (libnob.cmd-free cmd)
+    (c.free chain))
+
+  ;; 10. File descriptor open-for-write / open-for-read cycle
+  (let ((path "build/stress_fd.txt"))
+    (let ((wfd (libnob.fd-open-for-write path)))
+      (check-true "fd-open-for-write >= 0" (>= wfd 0))
+      (libnob.fd-close wfd))
+    (let ((rfd (libnob.fd-open-for-read path)))
+      (check-true "fd-open-for-read >= 0" (>= rfd 0))
+      (libnob.fd-close rfd))
+    (libnob.delete-file path))
+
+  ;; 11. Directory entry iterator
+  (let ((dir-ent (c.calloc 1 (c.size 'Nob_Dir_Entry))))
+    (check-true "dir-entry-open" (libnob.dir-entry-open "stdlib" dir-ent))
+    (check-true "dir-entry-next" (libnob.dir-entry-next dir-ent))
+    (libnob.dir-entry-close (ffi-deref dir-ent 'Nob_Dir_Entry))
+    (c.free dir-ent))
+
+  ;; 12. Minimal log level set/get round-trip
+  (libnob.minimal-log-level-set! 2)
+  (check "minimal-log-level get" (libnob.minimal-log-level) 2)
+  (libnob.minimal-log-level-set! 0)
+)
+
+
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; PART K — basic.lext Loop / Capture / Shift Extremes
+;;; ═══════════════════════════════════════════════════════════════════════
+(section "PART K — basic Loop / Capture / Shift Extremes"
+
+  ;; 1. while with 10,000 iterations
+  (let ((n 0))
+    (while (< n 10000) (set! n (+ n 1)))
+    (check "while 10000" n 10000))
+
+  ;; 2. for with step 2
+  (let ((acc '()))
+    (for (i 0 10 2)
+      (set! acc (cons i acc)))
+    (check "for step 2" (reverse acc) '(0 2 4 6 8)))
+
+  ;; 3. for with negative step (countdown)
+  (let ((acc '()))
+    (for (i 10 0 -2)
+      (set! acc (cons i acc)))
+    (check "for step -2" (reverse acc) '(10 8 6 4 2)))
+
+  ;; 4. foreach over empty list
+  (let ((count 0))
+    (foreach (x '()) (set! count (+ count 1)))
+    (check "foreach empty" count 0))
+
+  ;; 5. foreach sum
+  (let ((sum 0))
+    (foreach (x '(1 2 3 4 5 6 7 8 9 10))
+      (set! sum (+ sum x)))
+    (check "foreach sum 1..10" sum 55))
+
+  ;; 6. capture stdout
+  (let ((out (capture (display "captured!"))))
+    (check "capture output" out "captured!"))
+
+  ;; 7. capture with format
+  (let ((out (capture (display (format #f "~A + ~A = ~A" 1 2 3)))))
+    (check "capture format" out "1 + 2 = 3"))
+
+  ;; 8. shift first element
+  (let ((lst '(10 20 30)))
+    (let ((head (basic.shift lst)))
+      (check "shift first"     head 10)
+      (check "shift remainder" lst  '(20 30))))
+
+  ;; 9. shift empty list returns #f
+  (let ((empty '()))
+    (check "shift empty" (basic.shift empty) #f))
+
+  ;; 10. Nested while inside foreach
+  (let ((total 0))
+    (foreach (x '(1 2 3))
+      (let ((y x))
+        (while (> y 0)
+          (set! total (+ total 1))
+          (set! y (- y 1)))))
+    (check "nested while in foreach" total 6))
+)
+
+
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; PART L — String Builder + sb-pad-align
+;;; ═══════════════════════════════════════════════════════════════════════
+(section "PART L — String Builder / sb-pad-align"
+
+  ;; 1. Allocate SB, set fields, call pad-align, read count
+  (let ((sb (c.calloc 1 (c.size 'Nob_String_Builder))))
+    (ffi-set! sb 'Nob_String_Builder '((items . ()) (count . 0) (capacity . 0)))
+    (libnob.sb-pad-align sb 16)
+    (let* ((sbs   (ffi-deref sb 'Nob_String_Builder))
+           (count (cdr (assoc 'count sbs))))
+      (check-true "sb-pad-align count is number" (number? count)))
+    (c.free sb))
+
+  ;; 2. cmd-render fills a SB internally
+  (let ((cmd (libnob.cmd-new)))
+    (libnob.cmd-append cmd "echo" "sb-test")
+    (let ((rendered (libnob.cmd-render cmd)))
+      (check-true "cmd-render string"       (string? rendered))
+      (check-true "cmd-render contains text" (> (string-length rendered) 0)))
+    (libnob.cmd-free cmd))
+)
+
+
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; PART M — RAII Macro Deep Tests
+;;; ═══════════════════════════════════════════════════════════════════════
+(section "PART M — RAII Macro Deep Tests"
+
+  ;; 1. with-c-string round-trip
+  (with-c-string (s "Hello from with-c-string")
+    (check "with-c-string from-ptr"
+           (c.string-from-ptr s) "Hello from with-c-string"))
+
+  ;; 2. with-c-string with empty string
+  (with-c-string (s "")
+    (check "with-c-string empty" (c.string-from-ptr s) ""))
+
+  ;; 3. with-c-array: 50-element int array
+  (let ((expected (let loop ((i 0) (acc '()))
+                    (if (< i 50) (loop (+ i 1) (cons i acc)) (reverse acc)))))
+    (with-c-array (arr int expected)
+      (let loop ((i 0) (ok #t))
+        (if (< i 50)
+            (let ((v (c.deref (c.tptr-ptr arr) 'int i)))
+              (loop (+ i 1) (and ok (= v i))))
+            (check-true "with-c-array 50 elements" ok)))))
+
+  ;; 4. with-c-string-array round-trip with 10 strings
+  (let ((strs (map (lambda (i) (string-append "item-" (number->string i)))
+                   '(0 1 2 3 4 5 6 7 8 9))))
+    (with-c-string-array (sa strs)
+      (let ((out (c.string-array->list sa)))
+        (check "with-c-string-array 10 elements" out strs))))
+
+  ;; 5. Nested RAII macros
+  (with-c-string (outer "outer")
+    (with-c-string (inner "inner")
+      (check "nested RAII outer" (c.string-from-ptr outer) "outer")
+      (check "nested RAII inner" (c.string-from-ptr inner) "inner")))
+)
+
+
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; PART N — Cross-Library Interaction and Weird Combos
+;;; ═══════════════════════════════════════════════════════════════════════
+(section "PART N — Cross-Library Weird Combos"
+
+  ;; 1. capture inside a for loop
+  (let ((lines '()))
+    (for (i 0 5)
+      (let ((out (capture (display (format #f "line-~A" i)))))
+        (set! lines (cons out lines))))
+    (check "capture in for loop" (reverse lines)
+           '("line-0" "line-1" "line-2" "line-3" "line-4")))
+
+  ;; 2. temp-strdup inside a while loop
+  (libnob.temp-reset)
+  (let ((cp  (libnob.temp-save))
+        (acc '()))
+    (let loop ((i 0))
+      (if (< i 20)
+          (begin
+            (set! acc (cons (libnob.temp-strdup (number->string (* i i))) acc))
+            (loop (+ i 1)))))
+    (check "temp-strdup in while, entry 0" (car (reverse acc)) "0")
+    (libnob.temp-rewind cp))
+
+  ;; 3. Alloc inside foreach, free after
+  (let ((ptrs '()))
+    (foreach (sz '(8 16 32 64 128))
+      (set! ptrs (cons (c.calloc 1 sz) ptrs)))
+    (check "5 allocations in foreach" (length ptrs) 5)
+    (for-each c.free ptrs))
+
+  ;; 4. SV chop in a while loop (tokenise "a:b:c:d:e")
+  (let* ((sv     (libnob.sv-from-cstr "a:b:c:d:e"))
+         (sv-ptr (c.calloc 1 (c.size 'Nob_String_View)))
+         (tokens '()))
+    (ffi-set! sv-ptr 'Nob_String_View sv)
+    (let loop ((rem (ffi-deref sv-ptr 'Nob_String_View)))
+      (let ((count (cdr (assoc 'count rem))))
+        (if (> count 0)
+            (begin
+              (ffi-set! sv-ptr 'Nob_String_View rem)
+              (let ((tok (libnob.sv-chop-by-delim sv-ptr #\:)))
+                (set! tokens (cons (libnob.sv->string tok) tokens))
+                (loop (ffi-deref sv-ptr 'Nob_String_View)))))))
+    (check "sv while-tokenise" (reverse tokens) '("a" "b" "c" "d" "e"))
+    (c.free sv-ptr))
+
+  ;; 5. DA inside a foreach
+  (let ((da (c.calloc 1 (c.size 'Nob_Dynamic_Array))))
+    (libnob.da-set! da '((items . ()) (count . 0) (capacity . 0)))
+    (foreach (n '(1 3 5 7 9))
+      (libnob.da-append da n int))
+    (check "da-count from foreach" (libnob.da-count da) 5)
+    (check "da-first from foreach" (libnob.da-first da 'int) 1)
+    (check "da-last from foreach"  (libnob.da-last  da 'int) 9)
+    (libnob.da-free da)
+    (c.free da))
+
+  ;; 6. c.string->c-string and c.string-from-ptr round-trip
+  (let ((cstr (c.string->c-string "round-trip")))
+    (check "string->c-string->string"
+           (c.string-from-ptr cstr) "round-trip")
+    (c.free cstr))
+)
+
+
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; Final report
+;;; ═══════════════════════════════════════════════════════════════════════
 (ffi-close libtest)
 (libnob.delete-file "test/libtest.so")
 
-(display "\nAll standard library functions checked and passed successfully!\n")
+(display "\n═══════════════════════════════════════════════════════════════\n")
+(display (format #f "  RESULTS:  ✓ ~A passed   ✗ ~A failed\n" *pass* *fail*))
+(display "═══════════════════════════════════════════════════════════════\n")
+
+(if (> *fail* 0)
+    (error (format #f "~A test(s) FAILED" *fail*)))

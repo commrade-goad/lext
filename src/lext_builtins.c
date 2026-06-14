@@ -150,5 +150,57 @@ void lext_builtins_register(s7_scheme *sc) {
     s7_define_function(sc, "lext-c-string-array->list", builtin_c_string_array_to_list, 1, 0, false,
                        "(lext-c-string-array->list ptr) converts NULL-terminated char** to list");
     s7_define_function(sc, "lext-sv->string", builtin_sv_to_string, 2, 0, false,
-                       "(lext-sv->string count data-ptr) creates string from string view");
+                       "(lext-sv->string count ptr) decodes a string view data pointer to Scheme string");
+
+    /* Register open-namespace and use-namespace globally at startup */
+    s7_eval_c_string(sc,
+        "(define-macro (open-namespace prefix-arg)\n"
+        "  (let* ((protected-syms '(set! = + - * / < > <= >=))\n"
+        "         (prefix-raw (if (symbol? prefix-arg) (symbol->string prefix-arg) prefix-arg))\n"
+        "         (prefix (if (and (string? prefix-raw)\n"
+        "                          (> (string-length prefix-raw) 0)\n"
+        "                          (char=? (string-ref prefix-raw (- (string-length prefix-raw) 1)) #\\.))\n"
+        "                     prefix-raw\n"
+        "                     (string-append prefix-raw \".\")))\n"
+        "         (st (symbol-table))\n"
+        "         (prefix-len (string-length prefix))\n"
+        "         (bindings '()))\n"
+        "    (for-each\n"
+        "      (lambda (sym)\n"
+        "        (let ((sym-str (symbol->string sym)))\n"
+        "          (if (and (> (string-length sym-str) prefix-len)\n"
+        "                   (string=? (substring sym-str 0 prefix-len) prefix)\n"
+        "                   (defined? sym))\n"
+        "              (let ((new-sym (string->symbol (substring sym-str prefix-len))))\n"
+        "                (unless (member new-sym protected-syms)\n"
+        "                  (set! bindings (cons `(define ,new-sym ,sym) bindings)))))))\n"
+        "      st)\n"
+        "    `(begin ,@(reverse bindings))))\n"
+    );
+
+    s7_eval_c_string(sc,
+        "(define-macro (use-namespace prefix-arg . body)\n"
+        "  (let* ((protected-syms '(set! = + - * / < > <= >=))\n"
+        "         (prefix-raw (if (symbol? prefix-arg) (symbol->string prefix-arg) prefix-arg))\n"
+        "         (prefix (if (and (string? prefix-raw)\n"
+        "                          (> (string-length prefix-raw) 0)\n"
+        "                          (char=? (string-ref prefix-raw (- (string-length prefix-raw) 1)) #\\.))\n"
+        "                     prefix-raw\n"
+        "                     (string-append prefix-raw \".\")))\n"
+        "         (st (symbol-table))\n"
+        "         (prefix-len (string-length prefix))\n"
+        "         (bindings '()))\n"
+        "    (for-each\n"
+        "      (lambda (sym)\n"
+        "        (let ((sym-str (symbol->string sym)))\n"
+        "          (if (and (> (string-length sym-str) prefix-len)\n"
+        "                   (string=? (substring sym-str 0 prefix-len) prefix)\n"
+        "                   (defined? sym))\n"
+        "              (let ((new-sym (string->symbol (substring sym-str prefix-len))))\n"
+        "                (unless (member new-sym protected-syms)\n"
+        "                  (set! bindings (cons `',new-sym (cons sym bindings))))))))\n"
+        "      st)\n"
+        "    `(with-let (sublet (curlet) ,@bindings)\n"
+        "       ,@body)))\n"
+    );
 }

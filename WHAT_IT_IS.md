@@ -59,7 +59,7 @@ The `use` function dynamically locates, namespaces, and loads module entry-point
 
 * **Search Path**: When you call `(use "stdlib/basic")`, Lext searches each path in `LEXT_HOME` for a directory named `stdlib/basic` containing a file named `lib.lext`.
 * **Dynamic Prefix Namespacing**: Lext automatically prefixes all public bindings imported from the module with the last segment of the module's path name.
-  * `(use "stdlib/basic")` yields bindings prefixed with `basic.` (e.g. `basic.open-namespace`, `basic.for`).
+  * `(use "stdlib/basic")` yields bindings prefixed with `basic.` (e.g. `basic.for`, `basic.while`).
   * `(use "stdlib/c")` yields bindings prefixed with `c.` (e.g. `c.malloc`, `c.free`).
   * `(use "stdlib/libnob")` yields bindings prefixed with `libnob.` (e.g. `libnob.cmd-run`, `libnob.delete-file`).
 * **Symbol Exports**: Modules declare their public API using the `(export ...)` macro inside their `lib.lext` files. Only those listed symbols are exported. If `(export ...)` is omitted, all symbols except those starting with `"internal-"` are exported.
@@ -238,14 +238,14 @@ This module extends the core Scheme syntax with standard control blocks, namespa
 * **`(open-namespace prefix-arg)`**  
   Globally registers prefix-free copies of all variables matching `prefix-arg` (e.g. `"basic"`, `"c"`), while protecting core compiler symbols.
   ```scheme
-  (basic.open-namespace "basic") ;; strips "basic." prefix, making open-namespace globally prefix-free
-  (open-namespace "c")           ;; strips "c." prefix
+  (open-namespace "basic") ;; strips "basic." prefix globally
+  (open-namespace "c")     ;; strips "c." prefix
   ```
 
 * **`(use-namespace prefix-arg . body)`**  
   Temporarily strips prefixes within the lexical scope of `body`.
   ```scheme
-  (basic.use-namespace "libnob"
+  (use-namespace "libnob"
     (display (defined? 'cmd-run))) ;; #t inside this block
   ```
 

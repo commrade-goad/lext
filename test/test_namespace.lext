@@ -6,7 +6,7 @@
 
 ;; 1. Check dynamic prefixing from path segment
 (display "--- 1. Testing Path-Based Prefixing ---\n")
-(display (format #f "basic.open-namespace is defined: ~A\n" (defined? 'basic.open-namespace)))
+(display (format #f "open-namespace is defined globally: ~A\n" (defined? 'open-namespace)))
 (display (format #f "c.malloc is defined: ~A\n" (defined? 'c.malloc)))
 (display (format #f "libnob.cmd-run is defined: ~A\n" (defined? 'libnob.cmd-run)))
 
@@ -16,14 +16,14 @@
 
 ;; 2. Testing open-namespace globally
 (display "\n--- 2. Testing open-namespace Globally ---\n")
-(basic.open-namespace "c")
+(open-namespace "c")
 (display (format #f "After (open-namespace \"c\"), malloc is defined: ~A\n" (defined? 'malloc)))
 (display (format #f "After (open-namespace \"c\"), free is defined: ~A\n" (defined? 'free)))
 
 ;; 3. Testing scoped use-namespace
 (display "\n--- 3. Testing scoped use-namespace ---\n")
 (display (format #f "Before use-namespace, cmd-run is defined: ~A\n" (defined? 'cmd-run)))
-(basic.use-namespace "libnob"
+(use-namespace "libnob"
   (display (format #f "  Inside use-namespace, cmd-run is defined: ~A\n" (defined? 'cmd-run)))
   (display (format #f "  Inside use-namespace, delete-file is defined: ~A\n" (defined? 'delete-file))))
 (display (format #f "After use-namespace, cmd-run is defined (should be #f): ~A\n" (defined? 'cmd-run)))

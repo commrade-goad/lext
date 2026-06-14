@@ -1,7 +1,4 @@
-;;;; basic.scm - Ultimate Dev Stdlib for s7 Scheme FFI
-;;;; Part of standard library split: Basic/pure Scheme side
-
-(export while foreach for capture shift open-namespace use-namespace)
+(export while foreach for capture shift)
 
 ;; --- Loop Constructs (while, foreach, for) ---
 (define-macro (while cond . body)
@@ -57,54 +54,6 @@
     (else
      (error "invalid for syntax" clause))))
 
-
-;; --- Namespace Stripper & Importer Utilities ---
-(define *protected-symbols* '(set! = + - * / < > <= >=))
-
-(define-macro (open-namespace prefix-arg)
-  (let* ((prefix-raw (if (symbol? prefix-arg) (symbol->string prefix-arg) prefix-arg))
-         (prefix (if (and (string? prefix-raw)
-                          (> (string-length prefix-raw) 0)
-                          (char=? (string-ref prefix-raw (- (string-length prefix-raw) 1)) #\.))
-                     prefix-raw
-                     (string-append prefix-raw ".")))
-         (st (symbol-table))
-         (prefix-len (string-length prefix))
-         (bindings '()))
-    (for-each
-      (lambda (sym)
-        (let ((sym-str (symbol->string sym)))
-          (if (and (> (string-length sym-str) prefix-len)
-                   (string=? (substring sym-str 0 prefix-len) prefix)
-                   (defined? sym))
-              (let ((new-sym (string->symbol (substring sym-str prefix-len))))
-                (unless (member new-sym *protected-symbols*)
-                  (set! bindings (cons `(define ,new-sym ,sym) bindings)))))))
-      st)
-    `(begin ,@(reverse bindings))))
-
-(define-macro (use-namespace prefix-arg . body)
-  (let* ((prefix-raw (if (symbol? prefix-arg) (symbol->string prefix-arg) prefix-arg))
-         (prefix (if (and (string? prefix-raw)
-                          (> (string-length prefix-raw) 0)
-                          (char=? (string-ref prefix-raw (- (string-length prefix-raw) 1)) #\.))
-                     prefix-raw
-                     (string-append prefix-raw ".")))
-         (st (symbol-table))
-         (prefix-len (string-length prefix))
-         (bindings '()))
-    (for-each
-      (lambda (sym)
-        (let ((sym-str (symbol->string sym)))
-          (if (and (> (string-length sym-str) prefix-len)
-                   (string=? (substring sym-str 0 prefix-len) prefix)
-                   (defined? sym))
-              (let ((new-sym (string->symbol (substring sym-str prefix-len))))
-                (unless (member new-sym *protected-symbols*)
-                  (set! bindings (cons `',new-sym (cons sym bindings))))))))
-      st)
-    `(with-let (sublet (curlet) ,@bindings)
-       ,@body)))
 
 ;; --- Output Capture Macros ---
 (define-macro (capture . body)
