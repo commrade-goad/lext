@@ -1,4 +1,4 @@
-(use "stdlib/libnob")
+(use ":stdlib/libnob")
 
 (define (any pred lst)
   (cond ((null? lst) #f)

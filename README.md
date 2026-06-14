@@ -40,23 +40,21 @@ make
 ```
 This produces the `./lext` binary.
 
-You can also let `lext` built itself with `nob.scm`, you just need `lext` already compiled and do:
+You can also let `lext` build itself with `build.lext`. You just need `lext` already compiled and run:
 ```bash
-# compile the shared lib of libnob first so we can FFI to nob.h
-gcc -O2 -fPIC -shared nob.c -o libnob.so
-lext -s nob.scm
+LEXT_HOME=. ./lext -s build.lext
 ```
 
-it will generate a `build` dir with all the artifact and the executable there.
+This will compile and link the `lext` binary, generating a `build` directory containing the final executable `build/lext`.
 
 ---
 
 ## Usage Guide
 
 ### 1. Pure Scheme Script Runner Mode (`-s` / `--no-template`)
-To run a raw Scheme file directly without template parsing, use the `-s` or `--no-template` flag:
+To run a raw Lext Scheme script directly without template parsing, use the `-s` or `--no-template` flag:
 ```bash
-./lext -s script.scm
+LEXT_HOME=. ./lext -s script.lext
 ```
 *Note: In script runner mode, specifying an output file is not allowed and will raise an error.*
 
@@ -82,9 +80,9 @@ To simplify writing strings containing backslashes (like LaTeX commands) or doub
 
 
 ### 3. Command-Line Arguments Passing
-You can pass custom command-line arguments to your Scheme scripts by adding `--` after the script name. Any arguments following `--` are collected into a list of strings and bound to the global variables `argv` and `*argv*` in the Scheme interpreter:
+You can pass custom command-line arguments to your Lext scripts by adding `--` after the script name. Any arguments following `--` are collected into a list of strings and bound to the global variables `argv` and `*argv*` in the Scheme interpreter:
 ```bash
-./lext -s script.scm -- arg1 arg2 "hello world"
+LEXT_HOME=. ./lext -s script.lext -- arg1 arg2 "hello world"
 ```
 
 Inside your script:
@@ -103,6 +101,11 @@ When you use a module, Lext dynamically prefixes all of its exported symbols wit
 * Loading `(use "stdlib/libnob")` defines its symbols as `libnob.cmd-run`, `libnob.delete-file`, etc.
 * Loading `(use "stdlib/basic")` defines its symbols as `basic.for`, `basic.while`, etc.
 * Loading `(use "stdlib/c")` defines its symbols as `c.malloc`, `c.free`, etc.
+
+#### Project-Local Modules (`:`)
+If a module path starts with `:`, Lext bypasses `LEXT_HOME` entirely and resolves the module relative to the current working directory (`cwd`):
+* Loading `(use ":stdlib/libnob")` searches for `./stdlib/libnob/lib.lext` in the current directory and prefixes its symbols as `libnob.`.
+This prevents collisions with standard libraries located in `LEXT_HOME` and simplifies local project dependencies.
 
 #### Module Exports
 Inside a module's `lib.lext` file, the public API is declared using the `(export ...)` macro:
@@ -127,6 +130,14 @@ To strip prefixes and use functions prefix-free:
 
 #### Double Loading Prevention & Caching
 Lext hashes the absolute path of every evaluated module using a high-performance `MeowHash` key and caches the loaded sublet environment. Subsequent calls to `use` for the same module will map bindings from the cache without re-running the module's file on disk.
+
+### 5. Running the Test Suite
+Lext includes a heavy stress test suite to verify correct FFI behavior, memory boundaries, and standard library modules.
+To run the stress test suite, run:
+```bash
+LEXT_HOME=. ./lext -s test/test_stress.lext
+```
+This runs all checks (including FFI struct/union by value passing, callbacks, and automatic bounds tracking/error catching).
 
 ---
 
@@ -176,6 +187,10 @@ Provides direct bindings to C library memory routines, prefixed with `c.` (which
 * `(c.set! ptr type value)` - Writes value to C memory at a pointer.
 * `(c.null-ptr)` / `(c.null-ptr? ptr)` - Direct null pointer checks.
 * `(c.c-cast ptr type)` - Performs pointer type casting.
+* `(c.size type)` - Returns the size in bytes of the FFI type layout.
+
+> [!IMPORTANT]
+> **Memory Safety Pattern**: Always use `(c.calloc 1 (c.size 'TypeName))` for struct allocation (never hardcoded sizes); use `c.free` to release the memory when done. Lext automatically tracks bounds for these allocations and raises Scheme-level exceptions on out-of-bounds accesses.
 
 #### **Pointer Navigation & Mutating Macros**
 These macros make traversing structured C memory structures incredibly concise:
@@ -394,6 +409,10 @@ You can register and call these in Scheme:
 Below is a complete loop that clears the screen to blue, polls events, checks their type via casting, and exits when closed or after 5 seconds:
 
 ```scheme
+(use "stdlib/basic" "stdlib/c")
+(open-namespace "basic")
+(open-namespace "c")
+
 (define sdl (ffi-open "libSDL2.so"))
 
 ;; Constants
@@ -415,10 +434,6 @@ Below is a complete loop that clears the screen to blue, polls events, checks th
 (c-import sdl-quit                 sdl "SDL_Quit"               void    ())
 (c-import sdl-pollevent            sdl "SDL_PollEvent"          int     (pointer))
 (c-import sdl-get-ticks            sdl "SDL_GetTicks"           int     ())
-
-(define libc (ffi-open #f))
-(c-import malloc libc "malloc" pointer (int))
-(c-import free   libc "free"   void    (pointer))
 
 ;; Define event-specific layouts
 (ffi-typedef 'SDL_KeyboardEvent
@@ -449,7 +464,8 @@ Below is a complete loop that clears the screen to blue, polls events, checks th
 (define win (sdl-create-window "FFI SDL Window" 0 0 640 480 4))
 (define ren (sdl-create-renderer win -1 SDL_RENDERER_ACCELERATED))
 
-(define event-ptr (malloc 56)) ; max event size
+;; Allocate event buffer using standard safety pattern (56 bytes max event size)
+(define event-ptr (calloc 1 (size 'SDL_KeyboardEvent)))
 (define start-time (sdl-get-ticks))
 
 (let loop ()
@@ -478,24 +494,15 @@ Below is a complete loop that clears the screen to blue, polls events, checks th
 ---
 
 
-### Helper: Binding C Functions to Scheme Functions (`c-import`)
+### Binding C Functions to Scheme Functions (`c-import`)
 
-Instead of invoking `ffi-call` with raw function pointer variables and verbose argument lists every time, you can use a Scheme macro to bind any C function to a clean Scheme function wrapper.
-
-Here is the helper macro:
-```scheme
-(define-macro (c-import scheme-name lib-handle c-name ret-type arg-types . nfixed)
-  (let ((func-ptr (gensym)))
-    `(begin
-       ;; Resolve symbol once at definition time
-       (define ,func-ptr (ffi-sym ,lib-handle ,c-name))
-       ;; Create the Scheme wrapper function
-       (define (,scheme-name . args)
-         (ffi-call ,func-ptr ',ret-type ',arg-types args ,@(if (null? nfixed) '() (list (car nfixed))))))))
-```
+Instead of invoking `ffi-call` with raw function pointer variables and verbose argument lists every time, you can use the `c-import` macro (provided out-of-the-box by the `stdlib/c` module) to bind any C function to a clean Scheme function wrapper.
 
 #### Usage Example:
 ```scheme
+(use "stdlib/c")
+(open-namespace "c")
+
 (define libc (ffi-open #f))
 
 ;; Import standard functions

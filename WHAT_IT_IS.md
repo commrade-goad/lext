@@ -62,6 +62,8 @@ The `use` function dynamically locates, namespaces, and loads module entry-point
   * `(use "stdlib/basic")` yields bindings prefixed with `basic.` (e.g. `basic.for`, `basic.while`).
   * `(use "stdlib/c")` yields bindings prefixed with `c.` (e.g. `c.malloc`, `c.free`).
   * `(use "stdlib/libnob")` yields bindings prefixed with `libnob.` (e.g. `libnob.cmd-run`, `libnob.delete-file`).
+* **Project-Local Modules (`:`)**: If a module path starts with `:`, Lext bypasses `LEXT_HOME` entirely and resolves the module relative to the current working directory (`cwd`).
+  * `(use ":stdlib/libnob")` searches for `./stdlib/libnob/lib.lext` in the current working directory and prefixes its symbols as `libnob.`.
 * **Symbol Exports**: Modules declare their public API using the `(export ...)` macro inside their `lib.lext` files. Only those listed symbols are exported. If `(export ...)` is omitted, all symbols except those starting with `"internal-"` are exported.
 * **Double Loading Prevention & Caching**: Lext hashes the absolute path of every evaluated module file using a high-performance **MeowHash** key. The loaded sublet environment is cached in a global tracking table, allowing future `use` requests to instantly copy bindings to different lexical scopes without re-running the source file.
 

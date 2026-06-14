@@ -90,7 +90,24 @@ static s7_pointer builtin_use_lib(s7_scheme *sc, s7_pointer args) {
                              s7_make_string(sc, "module name must be a string or symbol"));
 
         ArrHsv paths = {0};
-        split_on_char(&paths, env, ':');
+
+        char *current_dir = NULL;
+        if (strlen(lib_str) > 1 && lib_str[0] == ':') {
+            #ifdef _WIN32
+            return s7_error(sc, s7_make_symbol(sc, "use-error"), s7_make_string(sc, "The : accessor on the current dir is not implemented in windows."));
+            #else
+            current_dir = getcwd(NULL, 0);
+            if (!current_dir) {
+                return s7_error(sc, s7_make_symbol(sc, "use-error"), s7_make_string(sc, "Failed to get the current working dir."));
+            }
+            #endif /* !_WIN32 */
+            ++lib_str;
+            paths.sz = 0;
+            helpa_da_append(paths, HSTRV_CSTR(current_dir));
+        } else {
+            split_on_char(&paths, env, ':');
+        }
+
         HStr path = {0};
         bool loaded = false;
 
@@ -137,14 +154,20 @@ static s7_pointer builtin_use_lib(s7_scheme *sc, s7_pointer args) {
 
         if (!loaded) {
             HStr err_msg = {0};
-            hstr_printf(&err_msg, "module '%s' not found in LEXT_HOME", lib_str);
+            if (!current_dir) {
+                hstr_printf(&err_msg, "module '%s' not found in LEXT_HOME", lib_str);
+            } else {
+                hstr_printf(&err_msg, "module '%s' not found in `%s`", lib_str, current_dir);
+            }
             s7_pointer err = s7_error(sc,
                                       s7_make_symbol(sc, "use-error"),
                                       s7_make_string(sc, (const char *)err_msg.dt));
             hstr_free(&err_msg);
+            if (current_dir) free(current_dir);
             return err;
         }
 
+        if (current_dir) free(current_dir);
         curr = s7_cdr(curr);
     }
     return s7_unspecified(sc);

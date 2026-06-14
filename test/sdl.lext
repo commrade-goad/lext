@@ -53,8 +53,7 @@
                       (int32 xrel)
                       (int32 yrel)))
 
-;; Allocate a single reusable event buffer (56 bytes is the max event size in SDL2)
-(define event-ptr (malloc 56))
+(define event-ptr (calloc 1 64)) ;; reserve 64 byte just to be save because i am too lazy to copy the whole def of the SDL_Event
 
 ;; --- Game Logic ---
 

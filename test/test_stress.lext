@@ -580,6 +580,11 @@
     (check-true "basic in use-namespace 1" (defined? 'capture)))
   (use-namespace "libnob"
     (check-true "libnob in use-namespace 2" (defined? 'da-count)))
+
+  ;; 9. Project-local module resolution using ':' prefix
+  (check-error "local module not found throws error" (use ":stdlib/nonexistent_lib"))
+  (use ":stdlib/basic")
+  (check-true "local basic prefix basic.while exists" (defined? 'basic.while))
 )
 
 
