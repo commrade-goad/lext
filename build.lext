@@ -179,108 +179,129 @@
     (display "}\n" out)
     (close-output-port out)))
 
+(define (builder)
+  (libnob.mkdir-if-not-exists build-dir)
+  (define git-hash  (get-git-hash))
+  (define ffi-cflags (get-pkg-config-cflags))
+  (define ffi-libs   (get-pkg-config-libs))
 
-;; --- Build Process ---
+  (build-static-nob)
 
+  (if (libnob.needs-rebuild? "src/lext_constants.c" "stdlib/s7/libc.scm.orig")
+      (generate-constants-file "stdlib/s7/libc.scm.orig" "src/lext_constants.c")
+      (display "lext_constant.c is already up to date.\n"))
+
+  ;; 1. Compile s7.o
+  (if (or (libnob.needs-rebuild? (append-builddir "s7.o") "src/s7/s7.c")
+          (libnob.needs-rebuild? (append-builddir "s7.o") "src/s7/s7.h"))
+      (begin
+        (display "Rebuilding s7.o...\n")
+        (if (not (libnob.cmd-run `("gcc" "-O2" "-march=native" "-Wall" "-c" "src/s7/s7.c" "-o" ,(append-builddir "s7.o"))))
+            (error "Failed to compile s7.o")))
+      (display "s7.o is up to date.\n"))
+
+  ;; Common headers shared by all lext modules
+  (define lext-common-headers
+    '("src/helpa.h" "src/lext_hash.h" "src/s7/s7.h"))
+
+  ;; 2. Compile lext modules
+  (build-lext-module "lext_types.o" "src/lext_types.c"
+                     (append lext-common-headers '("src/lext_types.h"))
+                     '() git-hash ffi-cflags)
+
+  (build-lext-module "lext_io.o" "src/lext_io.c"
+                     (append lext-common-headers '("src/lext_types.h" "src/lext_io.h"))
+                     '() git-hash ffi-cflags)
+
+  (build-lext-module "lext_ffi.o" "src/lext_ffi.c"
+                     (append lext-common-headers '("src/lext_types.h" "src/lext_io.h" "src/lext_ffi.h"))
+                     '() git-hash ffi-cflags)
+
+  (build-lext-module "lext_module.o" "src/lext_module.c"
+                     (append lext-common-headers '("src/lext_module.h"))
+                     '() git-hash ffi-cflags)
+
+  (build-lext-module "lext_capture.o" "src/lext_capture.c"
+                     (append lext-common-headers '("src/lext_capture.h"))
+                     '() git-hash ffi-cflags)
+
+  (build-lext-module "lext_da.o" "src/lext_da.c"
+                     (append lext-common-headers '("src/lext_da.h"))
+                     '() git-hash ffi-cflags)
+
+  (build-lext-module "lext_builtins.o" "src/lext_builtins.c"
+                     (append lext-common-headers '("src/lext_builtins.h"))
+                     '() git-hash ffi-cflags)
+
+  (build-lext-module "lext_constants.o" "src/lext_constants.c"
+                     lext-common-headers
+                     '() git-hash ffi-cflags)
+
+  (build-lext-module "main.o" "src/main.c"
+                     (append lext-common-headers
+                             '("src/lext_types.h" "src/lext_io.h"
+                               "src/lext_ffi.h"   "src/lext_module.h"
+                               "src/lext_capture.h" "src/lext_da.h"
+                               "src/lext_builtins.h"))
+                     '() git-hash ffi-cflags)
+
+  ;; 3. Link lext
+  (let ((lext-objs '("main.o" "lext_types.o" "lext_io.o" "lext_ffi.o" "lext_module.o"
+                     "lext_capture.o" "lext_da.o" "lext_builtins.o" "lext_constants.o" "s7.o" "libnob.o")))
+    (if (any (lambda (obj) (libnob.needs-rebuild? (append-builddir "lext") (append-builddir obj)))
+             lext-objs)
+        (begin
+          (display "Linking lext...\n")
+          (let ((args (append `("gcc" "-rdynamic")
+                              (map append-builddir lext-objs)
+                              `("-o" ,(append-builddir "lext") "-lm" "-ldl")
+                              (split-string-by-spaces ffi-libs))))
+            (if (not (libnob.cmd-run args))
+                (error "Failed to link lext"))))
+        (display "lext is up to date.\n")))
+
+  (display "Build finished successfully!\n"))
+
+;; --- Entrypoint ---
 
 (display (format #f "\
 # ~A self-builder script #
   Why use other language to compile your interpreter
            when you can metaprogram it :)\n\n" *script-name*))
 
-(display "Starting Scheme-based build using libnob...\n")
+(cond
+ ((member "clean" argv string=?)
+  (begin
+    (display "Cleaning workspace...\n")
+    (for-each (lambda (f) (libnob.delete-file (append-builddir f)))
+              '("main.o" "lext_types.o" "lext_io.o" "lext_ffi.o" "lext_module.o"
+                "lext_capture.o" "lext_da.o" "lext_builtins.o" "lext_constants.o"
+                "s7.o" "libnob.o" "lext"))
+    (libnob.delete-file "src/lext_constants.c")
+    (exit)))
+ ((member "install" argv string=?)
+    (display "install...\n")
+    (let ((install-path (getenv "PREFIX")))
+      (if (not install-path)
+          (begin
+            (error "Please specify PREFIX from the env to put the install destination!")
+            (exit))
+          (else (begin
+                  (builder)
 
-(if (member "clean" argv string=?)
-    (begin
-      (display "Cleaning workspace...\n")
-      (for-each (lambda (f) (libnob.delete-file (append-builddir f)))
-                '("main.o" "lext_types.o" "lext_io.o" "lext_ffi.o" "lext_module.o"
-                  "lext_capture.o" "lext_da.o" "lext_builtins.o" "lext_constants.o"
-                  "s7.o" "libnob.o" "lext"))
-      (libnob.delete-file "src/lext_constants.c")
-      (exit)))
+                  (libnob.mkdir-if-not-exists install-path)
+                  (libnob.mkdir-if-not-exists (string-append install-path "/bin/"))
+                  (libnob.copy-file (append-builddir "lext") (string-append install-path "/bin/lext"))
 
-(libnob.mkdir-if-not-exists build-dir)
+                  (libnob.mkdir-if-not-exists (string-append install-path "/lib/"))
+                  (libnob.mkdir-if-not-exists (string-append install-path "/lib/lext/"))
+                  (libnob.copy-directory-recursively "stdlib" (string-append install-path "/lib/lext/stdlib"))
+                  (format #t "Installed successfully at `~A`\n" install-path);
+                  (exit)
+                  )))
+      )
+  )
+ )
 
-;; Generate C preprocessor constants using native s7 Lisp reader
-(display "Generating src/lext_constants.c...\n")
-(generate-constants-file "stdlib/s7/libc.scm.orig" "src/lext_constants.c")
-
-(define git-hash  (get-git-hash))
-(define ffi-cflags (get-pkg-config-cflags))
-(define ffi-libs   (get-pkg-config-libs))
-
-;; 0. Build static nob
-(build-static-nob)
-
-;; 1. Compile s7.o
-(if (or (libnob.needs-rebuild? (append-builddir "s7.o") "src/s7/s7.c")
-        (libnob.needs-rebuild? (append-builddir "s7.o") "src/s7/s7.h"))
-    (begin
-      (display "Rebuilding s7.o...\n")
-      (if (not (libnob.cmd-run `("gcc" "-O2" "-march=native" "-Wall" "-c" "src/s7/s7.c" "-o" ,(append-builddir "s7.o"))))
-          (error "Failed to compile s7.o")))
-    (display "s7.o is up to date.\n"))
-
-;; Common headers shared by all lext modules
-(define lext-common-headers
-  '("src/helpa.h" "src/lext_hash.h" "src/s7/s7.h"))
-
-;; 2. Compile lext modules
-(build-lext-module "lext_types.o" "src/lext_types.c"
-                   (append lext-common-headers '("src/lext_types.h"))
-                   '() git-hash ffi-cflags)
-
-(build-lext-module "lext_io.o" "src/lext_io.c"
-                   (append lext-common-headers '("src/lext_types.h" "src/lext_io.h"))
-                   '() git-hash ffi-cflags)
-
-(build-lext-module "lext_ffi.o" "src/lext_ffi.c"
-                   (append lext-common-headers '("src/lext_types.h" "src/lext_io.h" "src/lext_ffi.h"))
-                   '() git-hash ffi-cflags)
-
-(build-lext-module "lext_module.o" "src/lext_module.c"
-                   (append lext-common-headers '("src/lext_module.h"))
-                   '() git-hash ffi-cflags)
-
-(build-lext-module "lext_capture.o" "src/lext_capture.c"
-                   (append lext-common-headers '("src/lext_capture.h"))
-                   '() git-hash ffi-cflags)
-
-(build-lext-module "lext_da.o" "src/lext_da.c"
-                   (append lext-common-headers '("src/lext_da.h"))
-                   '() git-hash ffi-cflags)
-
-(build-lext-module "lext_builtins.o" "src/lext_builtins.c"
-                   (append lext-common-headers '("src/lext_builtins.h"))
-                   '() git-hash ffi-cflags)
-
-(build-lext-module "lext_constants.o" "src/lext_constants.c"
-                   lext-common-headers
-                   '() git-hash ffi-cflags)
-
-(build-lext-module "main.o" "src/main.c"
-                   (append lext-common-headers
-                           '("src/lext_types.h" "src/lext_io.h"
-                             "src/lext_ffi.h"   "src/lext_module.h"
-                             "src/lext_capture.h" "src/lext_da.h"
-                             "src/lext_builtins.h"))
-                   '() git-hash ffi-cflags)
-
-;; 3. Link lext
-(let ((lext-objs '("main.o" "lext_types.o" "lext_io.o" "lext_ffi.o" "lext_module.o"
-                   "lext_capture.o" "lext_da.o" "lext_builtins.o" "lext_constants.o" "s7.o" "libnob.o")))
-  (if (any (lambda (obj) (libnob.needs-rebuild? (append-builddir "lext") (append-builddir obj)))
-           lext-objs)
-      (begin
-        (display "Linking lext...\n")
-        (let ((args (append `("gcc" "-rdynamic")
-                            (map append-builddir lext-objs)
-                            `("-o" ,(append-builddir "lext") "-lm" "-ldl")
-                            (split-string-by-spaces ffi-libs))))
-          (if (not (libnob.cmd-run args))
-              (error "Failed to link lext"))))
-      (display "lext is up to date.\n")))
-
-(display "Build finished successfully!\n")
+(builder)
 
