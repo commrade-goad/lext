@@ -137,10 +137,19 @@ static s7_pointer builtin_sv_to_string(s7_scheme *sc, s7_pointer args) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Weak definition of lext_make_libc_constants                         */
+/* ------------------------------------------------------------------ */
+__attribute__((weak)) s7_pointer lext_make_libc_constants(s7_scheme *sc, s7_pointer args) {
+    return s7_inlet(sc, s7_nil(sc));
+}
+
+/* ------------------------------------------------------------------ */
 /* Registration                                                         */
 /* ------------------------------------------------------------------ */
 
 void lext_builtins_register(s7_scheme *sc) {
+    s7_define_function(sc, "lext-make-libc-constants", lext_make_libc_constants, 0, 0, false,
+                       "(lext-make-libc-constants) returns an inlet containing C preprocessor constants");
     s7_define_function(sc, "lext-calloc", builtin_lext_calloc, 2, 0, false,
                        "(lext-calloc nmemb size) allocates zero-filled memory");
     s7_define_function(sc, "lext-string->c-string", builtin_string_to_c_string, 1, 0, false,
@@ -148,9 +157,10 @@ void lext_builtins_register(s7_scheme *sc) {
     s7_define_function(sc, "lext-c-string-from-ptr", builtin_c_string_from_ptr, 1, 0, false,
                        "(lext-c-string-from-ptr ptr) reads null-terminated C string as Scheme string");
     s7_define_function(sc, "lext-c-string-array->list", builtin_c_string_array_to_list, 1, 0, false,
-                       "(lext-c-string-array->list ptr) converts NULL-terminated char** to list");
+                        "(lext-c-string-array->list ptr) converts NULL-terminated char** to list");
     s7_define_function(sc, "lext-sv->string", builtin_sv_to_string, 2, 0, false,
                        "(lext-sv->string count ptr) decodes a string view data pointer to Scheme string");
+
 
     /* Register open-namespace and use-namespace globally at startup */
     s7_eval_c_string(sc,

@@ -1,12 +1,19 @@
 ;;; stdlib/s7/lib.lext - s7 support module loader
-(use "stdlib/libnob")
+(use "stdlib/libnob" "stdlib/c")
 
 (define *s7-dir* (string-append (or (getenv "LEXT_HOME") ".") "/stdlib/s7/"))
 
 (define (load-s7-file name)
   (load (string-append *s7-dir* name) (curlet)))
 
-;; Load a safe, non-conflicting default subset of Scheme library extensions
-(use "stdlib/s7/stuff" "stdlib/s7/loop" "stdlib/s7/case" "stdlib/s7/json")
+;; Load the FFI-based libc module which registers '*libc* globally in the rootlet
+(load-s7-file "libc.scm")
+
+;; Load safe, non-conflicting default Scheme library extensions directly into s7 namespace
+(load-s7-file "stuff.scm")
+(load-s7-file "loop.scm")
+(load-s7-file "case.scm")
+(load-s7-file "json.scm")
 
 (export load-s7-file)
+

@@ -84,7 +84,104 @@
                 (error (string-append "Failed to compile " obj)))))
         (display (string-append obj " is up to date.\n")))))
 
+(define (find-c-define expr)
+  (cond ((not (pair? expr)) #f)
+        ((eq? (car expr) 'c-define) expr)
+        (else
+         (let loop ((lst expr))
+           (cond ((null? lst) #f)
+                 ((not (pair? lst)) #f)
+                 (else
+                  (let ((res (find-c-define (car lst))))
+                    (if res
+                        res
+                        (loop (cdr lst))))))))))
+
+(define (extract-macros filename)
+  (let ((port (open-input-file filename))
+        (int-macros '())
+        (double-macros '())
+        (string-macros '()))
+    (let loop ((expr (read port)))
+      (if (not (eof-object? expr))
+          (let ((c-define-expr (find-c-define expr)))
+            (if c-define-expr
+                (let ((quoted-list (cadr (cadr c-define-expr))))
+                  (for-each
+                    (lambda (elem)
+                      (if (and (pair? elem) (eq? (car elem) 'C-macro))
+                          (let* ((type-block (cadr elem))
+                                 (type (car type-block))
+                                 (syms (cadr type-block))
+                                 (syms-list (if (pair? syms) syms (list syms))))
+                            (cond ((eq? type 'int)
+                                   (set! int-macros (append int-macros syms-list)))
+                                  ((eq? type 'double)
+                                   (set! double-macros (append double-macros syms-list)))
+                                  ((eq? type 'char*)
+                                   (set! string-macros (append string-macros syms-list)))))))
+                    quoted-list))
+                (loop (read port))))))
+    (close-input-port port)
+    (list int-macros double-macros string-macros)))
+
+
+(define (generate-constants-file input-file output-file)
+  (let* ((extracted (extract-macros input-file))
+         (int-macros (car extracted))
+         (double-macros (cadr extracted))
+         (string-macros (caddr extracted))
+         (out (open-output-file output-file)))
+    (display "#include <limits.h>\n" out)
+    (display "#include <float.h>\n" out)
+    (display "#include <stdint.h>\n" out)
+    (display "#include <endian.h>\n" out)
+    (display "#include <time.h>\n" out)
+    (display "#include <sys/time.h>\n" out)
+    (display "#include <unistd.h>\n" out)
+    (display "#include <fcntl.h>\n" out)
+    (display "#include <sys/stat.h>\n" out)
+    (display "#include <sys/resource.h>\n" out)
+    (display "#include <sys/socket.h>\n" out)
+    (display "#include <netdb.h>\n" out)
+    (display "#include <signal.h>\n" out)
+    (display "#include <errno.h>\n" out)
+    (display "#include <glob.h>\n" out)
+    (display "#include <wordexp.h>\n" out)
+    (display "#include <pwd.h>\n" out)
+    (display "#include <grp.h>\n" out)
+    (display "#include <fenv.h>\n" out)
+    (display "#include \"s7/s7.h\"\n\n" out)
+    (display "s7_pointer lext_make_libc_constants(s7_scheme *sc, s7_pointer args) {\n" out)
+    (display "    s7_pointer env = s7_inlet(sc, s7_nil(sc));\n" out)
+    (for-each
+      (lambda (sym)
+        (let ((name (symbol->string sym)))
+          (display (format #f "#ifdef ~A\n" name) out)
+          (display (format #f "    s7_define(sc, env, s7_make_symbol(sc, \"~A\"), s7_make_integer(sc, ~A));\n" name name) out)
+          (display "#endif\n" out)))
+      int-macros)
+    (for-each
+      (lambda (sym)
+        (let ((name (symbol->string sym)))
+          (display (format #f "#ifdef ~A\n" name) out)
+          (display (format #f "    s7_define(sc, env, s7_make_symbol(sc, \"~A\"), s7_make_real(sc, ~A));\n" name name) out)
+          (display "#endif\n" out)))
+      double-macros)
+    (for-each
+      (lambda (sym)
+        (let ((name (symbol->string sym)))
+          (display (format #f "#ifdef ~A\n" name) out)
+          (display (format #f "    s7_define(sc, env, s7_make_symbol(sc, \"~A\"), s7_make_string(sc, ~A));\n" name name) out)
+          (display "#endif\n" out)))
+      string-macros)
+    (display "    return env;\n" out)
+    (display "}\n" out)
+    (close-output-port out)))
+
+
 ;; --- Build Process ---
+
 
 (display (format #f "\
 # ~A self-builder script #
@@ -98,11 +195,16 @@
       (display "Cleaning workspace...\n")
       (for-each (lambda (f) (libnob.delete-file (append-builddir f)))
                 '("main.o" "lext_types.o" "lext_io.o" "lext_ffi.o" "lext_module.o"
-                  "lext_capture.o" "lext_da.o" "lext_builtins.o"
+                  "lext_capture.o" "lext_da.o" "lext_builtins.o" "lext_constants.o"
                   "s7.o" "libnob.o" "lext"))
+      (libnob.delete-file "src/lext_constants.c")
       (exit)))
 
 (libnob.mkdir-if-not-exists build-dir)
+
+;; Generate C preprocessor constants using native s7 Lisp reader
+(display "Generating src/lext_constants.c...\n")
+(generate-constants-file "stdlib/s7/libc.scm.orig" "src/lext_constants.c")
 
 (define git-hash  (get-git-hash))
 (define ffi-cflags (get-pkg-config-cflags))
@@ -153,6 +255,10 @@
                    (append lext-common-headers '("src/lext_builtins.h"))
                    '() git-hash ffi-cflags)
 
+(build-lext-module "lext_constants.o" "src/lext_constants.c"
+                   lext-common-headers
+                   '() git-hash ffi-cflags)
+
 (build-lext-module "main.o" "src/main.c"
                    (append lext-common-headers
                            '("src/lext_types.h" "src/lext_io.h"
@@ -163,7 +269,7 @@
 
 ;; 3. Link lext
 (let ((lext-objs '("main.o" "lext_types.o" "lext_io.o" "lext_ffi.o" "lext_module.o"
-                   "lext_capture.o" "lext_da.o" "lext_builtins.o" "s7.o" "libnob.o")))
+                   "lext_capture.o" "lext_da.o" "lext_builtins.o" "lext_constants.o" "s7.o" "libnob.o")))
   (if (any (lambda (obj) (libnob.needs-rebuild? (append-builddir "lext") (append-builddir obj)))
            lext-objs)
       (begin
@@ -177,3 +283,4 @@
       (display "lext is up to date.\n")))
 
 (display "Build finished successfully!\n")
+
