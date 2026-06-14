@@ -43,18 +43,31 @@ static inline void meow_hash_table_set(MeowHashTable *t, MeowHash key, void *val
     uint64_t hash64 = MeowU64From(key, 0);
     size_t idx = hash64 % 1024;
     MeowHashNode *node = t->buckets[idx];
+    MeowHashNode *prev = NULL;
     while (node) {
         if (MeowHashesAreEqual(node->key, key)) {
-            node->val = val;
+            if (val == NULL) {
+                if (prev) {
+                    prev->next = node->next;
+                } else {
+                    t->buckets[idx] = node->next;
+                }
+                free(node);
+            } else {
+                node->val = val;
+            }
             return;
         }
+        prev = node;
         node = node->next;
     }
-    node = (MeowHashNode *)malloc(sizeof(MeowHashNode));
-    node->key  = key;
-    node->val  = val;
-    node->next = t->buckets[idx];
-    t->buckets[idx] = node;
+    if (val != NULL) {
+        node = (MeowHashNode *)malloc(sizeof(MeowHashNode));
+        node->key  = key;
+        node->val  = val;
+        node->next = t->buckets[idx];
+        t->buckets[idx] = node;
+    }
 }
 
 static inline MeowHash meow_hash_string(const char *str) {

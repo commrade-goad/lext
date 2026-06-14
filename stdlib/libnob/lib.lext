@@ -212,7 +212,7 @@
       (let ((str-ptr-buf (c.calloc 1 (c.size 'pointer))))
         (ffi-set! str-ptr-buf 'pointer arg)
         (internal-nob-cmd-append cmd 1 str-ptr-buf)
-        (c.free str-ptr-buf)))
+        (c.c-free str-ptr-buf)))
     args))
 
 ;; cmd-free: free a Nob_Cmd and its internal items buffer
@@ -221,8 +221,8 @@
       (let* ((cmd-struct (ffi-deref cmd 'Nob_Cmd))
              (items-ptr (cdr (assoc 'items cmd-struct))))
         (if (not (null? items-ptr))
-            (c.free items-ptr))
-        (c.free cmd))))
+            (c.c-free items-ptr))
+        (c.c-free cmd))))
 
 ;; cmd-run: run a command with Scheme-style keyword arguments.
 ;; Supports passing either a Nob_Cmd pointer OR a list of strings directly.
@@ -284,11 +284,11 @@
                 ;; into a Scheme string via s7_make_string_with_length — no per-byte
                 ;; Scheme list allocation, no ffi-deref array size cap.
                 (let ((str (lext-sv->string count items-ptr)))
-                  (c.free items-ptr)
-                  (c.free sb)
+                  (c.c-free items-ptr)
+                  (c.c-free sb)
                   str)
-                (begin (c.free sb) "")))
-          (begin (c.free sb) #f)))))
+                (begin (c.c-free sb) "")))
+          (begin (c.c-free sb) #f)))))
 
 ;; write-entire-file: write string data directly to file
 (define (write-entire-file path data)
@@ -360,11 +360,11 @@
                            (str (ffi-deref str-ptr 'string)))
                       (set! result (cons str result))
                       (loop (+ i 1))))))
-            (if (and (not (null? items-ptr)) (not (eq? items-ptr 0))) (c.free items-ptr))
-            (c.free children)
+            (if (and (not (null? items-ptr)) (not (eq? items-ptr 0))) (c.c-free items-ptr))
+            (c.c-free children)
             (reverse result))
           (begin
-            (c.free children)
+            (c.c-free children)
             #f)))))
 
 ;; sb-pad-align: pad string builder to alignment size boundary
@@ -492,7 +492,7 @@
   (let* ((da-struct (da-get da))
          (items (cdr (assoc 'items da-struct))))
     (if (and (not (null? items)) (not (eq? items 0)))
-        (c.free items))
+        (c.c-free items))
     (da-update! da '() 0 0)))
 
 (define (da-reserve da expected-capacity element-size)
@@ -592,8 +592,8 @@
            (count      (cdr (assoc 'count sb-struct)))
            ;; Use lext-sv->string — same fix as read-entire-file, no size cap
            (str        (if (> count 0) (lext-sv->string count items-ptr) "")))
-      (if (and (not (null? items-ptr)) (not (eq? items-ptr 0))) (c.free items-ptr))
-      (c.free sb)
+      (if (and (not (null? items-ptr)) (not (eq? items-ptr 0))) (c.c-free items-ptr))
+      (c.c-free sb)
       str)))
 
 

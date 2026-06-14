@@ -4,7 +4,7 @@
 (define internal-c-libc (ffi-open #f))
 (define *c-env* (curlet))
 
-(export tptr tptr-type tptr-ptr tptr? malloc free realloc calloc
+(export tptr tptr-type tptr-ptr tptr? malloc c-free realloc calloc
         raw-malloc raw-free raw-realloc raw-calloc memcpy memset ptr+
         raw-memcpy raw-memset raw-ptr+ deref pointer-set! addr @ = &
         null-ptr? null-ptr string-from-ptr string-array->list c-cast
@@ -138,30 +138,31 @@
 
 (define (malloc size)
   (let ((ptr (internal-c-malloc size)))
-    (unless (null? ptr)
-      (lext-register-bounds ptr size))
+    (if (not (null? ptr))
+        (lext-register-bounds ptr size))
     ptr))
 
-(define (free ptr)
+(define (c-free ptr)
   (let ((raw-ptr (if (internal-c-tptr? ptr) (internal-c-tptr-ptr ptr) ptr)))
-    (unless (null? raw-ptr)
-      (lext-unregister-bounds raw-ptr)
-      (internal-c-free raw-ptr))))
+    (if (not (null? raw-ptr))
+        (begin
+          (lext-unregister-bounds raw-ptr)
+          (raw-free raw-ptr)))))
 
 (define (realloc ptr size)
   (let* ((raw-ptr (if (internal-c-tptr? ptr) (internal-c-tptr-ptr ptr) ptr))
          (new-ptr (internal-c-realloc raw-ptr size)))
-    (unless (null? raw-ptr)
-      (lext-unregister-bounds raw-ptr))
-    (unless (null? new-ptr)
-      (lext-register-bounds new-ptr size))
+    (if (not (null? raw-ptr))
+        (lext-unregister-bounds raw-ptr))
+    (if (not (null? new-ptr))
+        (lext-register-bounds new-ptr size))
     new-ptr))
 
 (define (calloc nmemb size)
   (let* ((total-size (* nmemb size))
          (ptr (lext-calloc nmemb size)))
-    (unless (null? ptr)
-      (lext-register-bounds ptr total-size))
+    (if (not (null? ptr))
+        (lext-register-bounds ptr total-size))
     ptr))
 
 (define (raw-malloc size)
@@ -180,8 +181,8 @@
 (define (internal-c-string->c-string str)
   (let* ((ptr (lext-string->c-string str))
          (len (+ (string-length str) 1)))
-    (unless (null? ptr)
-      (lext-register-bounds ptr len))
+    (if (not (null? ptr))
+        (lext-register-bounds ptr len))
     ptr))
 
 
@@ -411,7 +412,7 @@
            (let ((,var (,(symbol->value 'internal-c-tptr *c-env*) ',type ,ptr)))
              ,@body))
          (lambda ()
-           (,(symbol->value 'free *c-env*) ,ptr))))))
+           (,(symbol->value 'c-free *c-env*) ,ptr))))))
 
 (define-macro (with-alloc . args)
   `(,(symbol->value 'with-heap-alloc *c-env*) ,@args))
@@ -427,7 +428,7 @@
            (let ((,var (,(symbol->value 'internal-c-tptr *c-env*) 'char ,ptr)))
              ,@body))
          (lambda ()
-           (,(symbol->value 'free *c-env*) ,ptr))))))
+           (,(symbol->value 'c-free *c-env*) ,ptr))))))
 
 (define-macro (with-c-array var-type-list . body)
   (let ((var (car var-type-list))
@@ -452,7 +453,7 @@
            (let ((,var (,(symbol->value 'internal-c-tptr *c-env*) ',type ,ptr)))
              ,@body))
          (lambda ()
-           (,(symbol->value 'free *c-env*) ,ptr))))))
+           (,(symbol->value 'c-free *c-env*) ,ptr))))))
 
 (define-macro (with-c-string-array var-lst . body)
   (let ((var (car var-lst))
@@ -488,8 +489,8 @@
            (let ((,var (,(symbol->value 'internal-c-tptr *c-env*) 'pointer ,ptr)))
              ,@body))
          (lambda ()
-           (for-each ,(symbol->value 'free *c-env*) ,ptrs)
-           (,(symbol->value 'free *c-env*) ,ptr))))))
+           (for-each ,(symbol->value 'c-free *c-env*) ,ptrs)
+           (,(symbol->value 'c-free *c-env*) ,ptr))))))
 
 
 ;; --- Common Helper Functions ---

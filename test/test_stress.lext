@@ -70,7 +70,7 @@
             (loop (+ i 1) (and all-zero (= b 0))))
           (begin
             (check-true "calloc zero-init 128 bytes" all-zero)
-            (c.free p)))))
+            (c.c-free p)))))
 
   ;; 2. realloc chain — grow 10 times and write/read back
   (let* ((p (c.malloc (* 4 1))))
@@ -84,7 +84,7 @@
             (loop (+ i 1) np))
           (begin
             (check "realloc first int survives" (ffi-deref ptr 'int) 1111)
-            (c.free ptr)))))
+            (c.c-free ptr)))))
 
   ;; 3. raw variants have NO bounds tracking
   (let* ((rp (c.raw-malloc 64))
@@ -118,7 +118,7 @@
                   (unless (lext-bounds-check (car pair) (cdr pair))
                     (set! all-ok #f)))
                 ptrs)
-      (for-each (lambda (pair) (c.free (car pair))) ptrs)
+      (for-each (lambda (pair) (c.c-free (car pair))) ptrs)
       (check-true "200 simultaneous tracked allocs" all-ok)))
 
   ;; 7. raw-free is safe
@@ -171,13 +171,13 @@
       (check "nested tl.y"  (cdr (assoc 'y tl)) 20)
       (check "nested br.x" (cdr (assoc 'x br)) 300)
       (check "nested br.y" (cdr (assoc 'y br)) 400))
-    (c.free r))
+    (c.c-free r))
 
   ;; 4. Union overlapping bytes
   (let ((u (c.calloc 1 (c.size 'IorF))))
     (ffi-set! u 'int 42)
     (check "union int member" (ffi-deref u 'int) 42)
-    (c.free u))
+    (c.c-free u))
 
   ;; 5. Array indexing via with-c-array
   (with-c-array (arr int '(10 20 30 40 50))
@@ -206,7 +206,7 @@
     (check-true "c-cast tptr?"    (c.tptr? cst))
     (check      "c-cast type"     (c.tptr-type cst) 'Rect)
     (check-true "c-cast ptr same" (equal? (c.tptr-ptr cst) p))
-    (c.free p))
+    (c.c-free p))
 )
 
 
@@ -234,7 +234,7 @@
     (ffi-set! u-ptr 'int 99)
     (let ((v (ffi-deref u-ptr 'int)))
       (check "union int read-back" v 99))
-    (c.free u-ptr))
+    (c.c-free u-ptr))
 
   ;; 3. Variadic printf via FFI (variadic nfixed=1)
   (c-import ffi-printf libc "printf" int (string) 1)
@@ -310,9 +310,9 @@
       ;; partial pointer: only 1 byte remaining for a 4-byte field — error
       (let ((tail (c.ptr+ ep (- (c.size 'Edge_S) 1))))
         (check-error "deref past struct" (c.deref tail 'int)))
-      (c.free ep))
+      (c.c-free ep))
 
-    (c.free p)
+    (c.c-free p)
     (c.raw-free rp))
 
   ;; 10. Hammer: 50 sequential alloc/write/check/free cycles
@@ -322,7 +322,7 @@
                (p  (c.calloc 1 sz)))
           (c.memset p (modulo i 128) sz)
           (let ((ok (lext-bounds-check p sz)))
-            (c.free p)
+            (c.c-free p)
             (loop (+ i 1) (and all-ok ok))))
         (check-true "50 alloc/write/check/free cycles" all-ok)))
 )
@@ -374,7 +374,7 @@
     (let ((right-part (libnob.sv-chop-right sv-ptr 3)))
       (check "sv-chop-right chopped"   (libnob.sv->string right-part) "FGH")
       (check "sv-chop-right remaining" (libnob.sv->string (ffi-deref sv-ptr 'Nob_String_View)) "ABCDE"))
-    (c.free sv-ptr))
+    (c.c-free sv-ptr))
 
   ;; 7. sv-chop-by-delim — chain of delimiters
   (let* ((sv     (libnob.sv-from-cstr "one:two:three"))
@@ -386,7 +386,7 @@
       (check "chop-by-delim t1" t1 "one")
       (check "chop-by-delim t2" t2 "two")
       (check "chop-by-delim t3" t3 "three"))
-    (c.free sv-ptr))
+    (c.c-free sv-ptr))
 
   ;; 8. sv-chop-prefix / sv-chop-suffix
   (let* ((sv     (libnob.sv-from-cstr "prefix_content_suffix"))
@@ -398,7 +398,7 @@
     (check-true "chop-suffix success" (libnob.sv-chop-suffix sv-ptr suf-sv))
     (check "chop prefix+suffix remainder"
            (libnob.sv->string (ffi-deref sv-ptr 'Nob_String_View)) "content")
-    (c.free sv-ptr))
+    (c.c-free sv-ptr))
 
   ;; 9. sv-from-parts round-trip
   (let* ((base-sv  (libnob.sv-from-cstr "data_here"))
@@ -434,7 +434,7 @@
     (check "da empty after 100 pops" (libnob.da-count da) 0)
     (check-error "da-pop empty errors" (libnob.da-pop da 'int))
     (libnob.da-free da)
-    (c.free da))
+    (c.c-free da))
 
   ;; 2. ulong array
   (let ((da (c.calloc 1 (c.size 'Nob_Dynamic_Array))))
@@ -444,7 +444,7 @@
     (check "da ulong first" (libnob.da-first da 'ulong) 9999999999)
     (check "da ulong last"  (libnob.da-last  da 'ulong) 0)
     (libnob.da-free da)
-    (c.free da))
+    (c.c-free da))
 
   ;; 3. Reserve before appending
   (let ((da (c.calloc 1 (c.size 'Nob_Dynamic_Array))))
@@ -452,7 +452,7 @@
     (libnob.da-reserve da 256 4)
     (check-true "da reserved capacity >= 256" (>= (libnob.da-capacity da) 256))
     (libnob.da-free da)
-    (c.free da))
+    (c.c-free da))
 
   ;; 4. da-items pointer is valid c-pointer after reserve
   (let ((da (c.calloc 1 (c.size 'Nob_Dynamic_Array))))
@@ -460,7 +460,7 @@
     (libnob.da-reserve da 10 4)
     (check-true "da-items c-pointer?" (c-pointer? (libnob.da-items da)))
     (libnob.da-free da)
-    (c.free da))
+    (c.c-free da))
 )
 
 
@@ -520,7 +520,7 @@
 
   ;; 1. Prefixed symbols are always defined
   (check-true "c.malloc defined"          (defined? 'c.malloc))
-  (check-true "c.free defined"            (defined? 'c.free))
+  (check-true "c.c-free defined"            (defined? 'c.c-free))
   (check-true "c.calloc defined"          (defined? 'c.calloc))
   (check-true "c.realloc defined"         (defined? 'c.realloc))
   (check-true "libnob.cmd-new defined"    (defined? 'libnob.cmd-new))
@@ -561,7 +561,7 @@
   ;; 5. open-namespace c — malloc goes bare
   (open-namespace "c")
   (check-true "malloc bare after open-namespace c" (defined? 'malloc))
-  (check-true "free bare"    (defined? 'free))
+  (check-true "c-free bare"    (defined? 'c-free))
   (check-true "calloc bare"  (defined? 'calloc))
   (check-true "realloc bare" (defined? 'realloc))
 
@@ -720,7 +720,7 @@
       (check-true "pipe write fd valid" (>= wrt-fd  0))
       (libnob.fd-close read-fd)
       (libnob.fd-close wrt-fd))
-    (c.free pipe-ptr))
+    (c.c-free pipe-ptr))
 
   ;; 8. Procs append + flush
   (let ((procs (c.calloc 1 (c.size 'Nob_Procs))))
@@ -732,7 +732,7 @@
         (check-true "procs count > 0"     (> (libnob.da-count procs) 0))
         (check-true "procs-wait-and-reset" (libnob.procs-wait-and-reset procs)))
       (libnob.cmd-free cmd))
-    (c.free procs))
+    (c.c-free procs))
 
   ;; 9. Chain API: echo via chain-begin/chain-cmd/chain-end
   (let ((chain (c.calloc 1 (c.size 'Nob_Chain)))
@@ -742,7 +742,7 @@
     (check-true "chain-cmd"   (libnob.chain-cmd chain cmd))
     (check-true "chain-end"   (libnob.chain-end chain))
     (libnob.cmd-free cmd)
-    (c.free chain))
+    (c.c-free chain))
 
   ;; 10. File descriptor open-for-write / open-for-read cycle
   (let ((path "build/stress_fd.txt"))
@@ -759,7 +759,7 @@
     (check-true "dir-entry-open" (libnob.dir-entry-open "stdlib" dir-ent))
     (check-true "dir-entry-next" (libnob.dir-entry-next dir-ent))
     (libnob.dir-entry-close (ffi-deref dir-ent 'Nob_Dir_Entry))
-    (c.free dir-ent))
+    (c.c-free dir-ent))
 
   ;; 12. Minimal log level set/get round-trip
   (libnob.minimal-log-level-set! 2)
@@ -842,7 +842,7 @@
     (let* ((sbs   (ffi-deref sb 'Nob_String_Builder))
            (count (cdr (assoc 'count sbs))))
       (check-true "sb-pad-align count is number" (number? count)))
-    (c.free sb))
+    (c.c-free sb))
 
   ;; 2. cmd-render fills a SB internally
   (let ((cmd (libnob.cmd-new)))
@@ -923,7 +923,7 @@
     (foreach (sz '(8 16 32 64 128))
       (set! ptrs (cons (c.calloc 1 sz) ptrs)))
     (check "5 allocations in foreach" (length ptrs) 5)
-    (for-each c.free ptrs))
+    (for-each c.c-free ptrs))
 
   ;; 4. SV chop in a while loop (tokenise "a:b:c:d:e")
   (let* ((sv     (libnob.sv-from-cstr "a:b:c:d:e"))
@@ -939,7 +939,7 @@
                 (set! tokens (cons (libnob.sv->string tok) tokens))
                 (loop (ffi-deref sv-ptr 'Nob_String_View)))))))
     (check "sv while-tokenise" (reverse tokens) '("a" "b" "c" "d" "e"))
-    (c.free sv-ptr))
+    (c.c-free sv-ptr))
 
   ;; 5. DA inside a foreach
   (let ((da (c.calloc 1 (c.size 'Nob_Dynamic_Array))))
@@ -950,13 +950,13 @@
     (check "da-first from foreach" (libnob.da-first da 'int) 1)
     (check "da-last from foreach"  (libnob.da-last  da 'int) 9)
     (libnob.da-free da)
-    (c.free da))
+    (c.c-free da))
 
   ;; 6. c.string->c-string and c.string-from-ptr round-trip
   (let ((cstr (c.string->c-string "round-trip")))
     (check "string->c-string->string"
            (c.string-from-ptr cstr) "round-trip")
-    (c.free cstr))
+    (c.c-free cstr))
 )
 
 
@@ -1029,7 +1029,7 @@
     (check "da-first int: first val"  (libnob.da-first da 'int) 10)
     (check "da-last int: only elem"   (libnob.da-last  da 'int) 10)
     (libnob.da-free da)
-    (c.free da))
+    (c.c-free da))
 
   ;; 3b: da-pop with 'uchar — previously in the table, verify still works
   (let ((da (c.calloc 1 (c.size 'Nob_Dynamic_Array))))
@@ -1041,7 +1041,7 @@
     (check "da-last uchar: last=2"   (libnob.da-last da 'uchar) 2)
     (check "da-first uchar: first=1" (libnob.da-first da 'uchar) 1)
     (libnob.da-free da)
-    (c.free da))
+    (c.c-free da))
 
   ;; 3c: da-pop with 'ulong — previously hardcoded as 8
   (let ((da (c.calloc 1 (c.size 'Nob_Dynamic_Array))))
@@ -1051,7 +1051,7 @@
     (check "da-pop ulong: pop 2000"  (libnob.da-pop  da 'ulong) 2000)
     (check "da-first ulong: 1000"    (libnob.da-first da 'ulong) 1000)
     (libnob.da-free da)
-    (c.free da))
+    (c.c-free da))
 
   ;; 3d: da-pop with 'pointer — previously hardcoded as 8
   (let* ((da  (c.calloc 1 (c.size 'Nob_Dynamic_Array)))
@@ -1064,9 +1064,9 @@
       (check "da-pop pointer: non-null result" (not (null? popped)) #t)
       (check "da-count after pointer pop" (libnob.da-count da) 1))
     (libnob.da-free da)
-    (c.free da)
-    (c.free p1)
-    (c.free p2))
+    (c.c-free da)
+    (c.c-free p1)
+    (c.c-free p2))
 
   ;; 3e: da-pop with 'float and 'double — previously unsupported by hardcoded lists
   (let ((da (c.calloc 1 (c.size 'Nob_Dynamic_Array))))
@@ -1076,7 +1076,7 @@
     (check "da-pop double: value" (libnob.da-pop da 'double) 2.718)
     (check "da-pop float: value"  (< (abs (- (libnob.da-pop da 'float) 3.14)) 1e-5) #t)
     (libnob.da-free da)
-    (c.free da))
+    (c.c-free da))
 
   ;; ── Bug bonus: write-entire-file + read-entire-file round-trip ────────
   ;; Covers the full pipeline including multi-line content
@@ -1087,6 +1087,29 @@
       (check "write+read round-trip: exact match"
              (and (string? back) (string=? back data)) #t))
     (libnob.delete-file path))
+)
+
+
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; PART P — Memory Leak and Capture Regression Shield
+;;; ═══════════════════════════════════════════════════════════════════════
+(section "PART P — Memory Leak and Capture Regression Shield"
+
+  ;; 1. Massive sequential and tracked allocation cycles
+  (let ((ptrs-ok #t))
+    (for (i 0 20000)
+      (let ((p (c.malloc 16)))
+        (if (not (and (c-pointer? p) (c.bounds-check p 16)))
+            (set! ptrs-ok #f))
+        (c.c-free p)))
+    (check-true "20,000 malloc/bounds-check/c-free sequential cycles ok" ptrs-ok))
+
+  ;; 2. Large capture (e.g., 100KB) to prevent POSIX capture deadlocks
+  (let ((captured (capture
+                    (for (i 0 102400)
+                      (write-char #\A)))))
+    (check "100KB capture size matches" (string-length captured) 102400)
+    (check-true "100KB captured contents correct" (and (string? captured) (char=? (string-ref captured 0) #\A) (char=? (string-ref captured 102399) #\A))))
 )
 
 
