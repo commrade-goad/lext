@@ -14,7 +14,7 @@
 #include "lext_da.h"
 #include "lext_builtins.h"
 
-#define VERSTRING "1.2.0"
+#define VERSTRING "1.3.0"
 #ifndef HASHVER
 #define HASHVER "unknown"
 #endif

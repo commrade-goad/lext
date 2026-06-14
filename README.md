@@ -34,18 +34,29 @@ sudo dnf install make gcc libffi-devel pkgconf
 ```
 
 ### Build Lext
-Compile the interpreter by running:
+    If you dont have the old compatible version of lext then you need to compile the first bootstrap interpreter by running:
 ```bash
 make
 ```
 This produces the `./lext` binary.
 
-You can also let `lext` build itself with `build.lext`. You just need `lext` already compiled and run:
+After that use that `./lext` binary to build the full featured compiler by using this command:
 ```bash
 LEXT_HOME=. ./lext -s build.lext
 ```
 
 This will compile and link the `lext` binary, generating a `build` directory containing the final executable `build/lext`.
+
+If you decide to install it you can run this command:
+```bash
+PREFIX=$HOME/.local/ LEXT_HOME=. ./lext -s build.lext -- install
+```
+
+It will log what it do and install `lib` and `bin` at the specified `PREFIX`.
+
+__NOTE:__
+
+Dont forget to set your `LEXT_HOME` into the `$PREFIX/lib/lext` dir on your shell startup or make your own wrapper that set that automatically!
 
 ---
 
