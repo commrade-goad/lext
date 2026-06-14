@@ -36,25 +36,25 @@
 
 (define (get-git-hash)
   (let ((filepath (string-append build-dir "/" ".git_hash.txt")))
-    (if (nob.cmd-run '("git" "rev-parse" "--short" "HEAD") :stdout-path filepath)
+    (if (libnob.cmd-run '("git" "rev-parse" "--short" "HEAD") :stdout-path filepath)
         (let ((hash (read-file-string filepath)))
-          (nob.delete-file filepath)
+          (libnob.delete-file filepath)
           hash)
         "unknown")))
 
 (define (get-pkg-config-cflags)
   (let ((filepath (string-append build-dir "/" ".ffi_cflags.txt")))
-    (if (nob.cmd-run '("pkg-config" "--cflags" "libffi") :stdout-path filepath)
+    (if (libnob.cmd-run '("pkg-config" "--cflags" "libffi") :stdout-path filepath)
         (let ((cflags (read-file-string filepath)))
-          (nob.delete-file filepath)
+          (libnob.delete-file filepath)
           cflags)
         "-I/usr/lib64/libffi/include")))
 
 (define (get-pkg-config-libs)
   (let ((filepath (string-append build-dir "/" ".ffi_libs.txt")))
-    (if (nob.cmd-run '("pkg-config" "--libs" "libffi") :stdout-path filepath)
+    (if (libnob.cmd-run '("pkg-config" "--libs" "libffi") :stdout-path filepath)
         (let ((libs (read-file-string filepath)))
-          (nob.delete-file filepath)
+          (libnob.delete-file filepath)
           libs)
         "-lffi")))
 
@@ -62,9 +62,9 @@
   (string-append build-dir "/" path))
 
 (define (build-static-nob)
-  (if (or (nob.needs-rebuild? (append-builddir "libnob.o") "src/nob.c")
-          (nob.needs-rebuild? (append-builddir "libnob.o") "src/nob.h"))
-      (if (not (nob.cmd-run `("gcc" "-O2" "-fPIC" "-c" "src/nob.c" "-o" ,(append-builddir "libnob.o"))))
+  (if (or (libnob.needs-rebuild? (append-builddir "libnob.o") "src/nob.c")
+          (libnob.needs-rebuild? (append-builddir "libnob.o") "src/nob.h"))
+      (if (not (libnob.cmd-run `("gcc" "-O2" "-fPIC" "-c" "src/nob.c" "-o" ,(append-builddir "libnob.o"))))
           (error "Failed to compile libnob.o"))
       (display "libnob.o is up to date.\n")))
 
@@ -72,7 +72,7 @@
 (define (build-lext-module obj src headers extra-cflags git-hash ffi-cflags)
   (let ((out-path (append-builddir obj))
         (all-deps (cons src headers)))
-    (if (any (lambda (dep) (nob.needs-rebuild? (append-builddir obj) dep)) all-deps)
+    (if (any (lambda (dep) (libnob.needs-rebuild? (append-builddir obj) dep)) all-deps)
         (begin
           (display (string-append "Rebuilding " obj "...\n"))
           (let ((args (append `("gcc" "-O2" "-march=native" "-Wall")
@@ -80,7 +80,7 @@
                               `(,(format #f "-DHASHVER=\"~A\"" git-hash))
                               extra-cflags
                               `("-c" ,src "-o" ,out-path))))
-            (if (not (nob.cmd-run args))
+            (if (not (libnob.cmd-run args))
                 (error (string-append "Failed to compile " obj)))))
         (display (string-append obj " is up to date.\n")))))
 
@@ -96,13 +96,13 @@
 (if (member "clean" argv string=?)
     (begin
       (display "Cleaning workspace...\n")
-      (for-each (lambda (f) (nob.delete-file (append-builddir f)))
+      (for-each (lambda (f) (libnob.delete-file (append-builddir f)))
                 '("main.o" "lext_types.o" "lext_io.o" "lext_ffi.o" "lext_module.o"
                   "lext_capture.o" "lext_da.o" "lext_builtins.o"
                   "s7.o" "libnob.o" "lext"))
       (exit)))
 
-(nob.mkdir-if-not-exists build-dir)
+(libnob.mkdir-if-not-exists build-dir)
 
 (define git-hash  (get-git-hash))
 (define ffi-cflags (get-pkg-config-cflags))
@@ -112,11 +112,11 @@
 (build-static-nob)
 
 ;; 1. Compile s7.o
-(if (or (nob.needs-rebuild? (append-builddir "s7.o") "src/s7/s7.c")
-        (nob.needs-rebuild? (append-builddir "s7.o") "src/s7/s7.h"))
+(if (or (libnob.needs-rebuild? (append-builddir "s7.o") "src/s7/s7.c")
+        (libnob.needs-rebuild? (append-builddir "s7.o") "src/s7/s7.h"))
     (begin
       (display "Rebuilding s7.o...\n")
-      (if (not (nob.cmd-run `("gcc" "-O2" "-march=native" "-Wall" "-c" "src/s7/s7.c" "-o" ,(append-builddir "s7.o"))))
+      (if (not (libnob.cmd-run `("gcc" "-O2" "-march=native" "-Wall" "-c" "src/s7/s7.c" "-o" ,(append-builddir "s7.o"))))
           (error "Failed to compile s7.o")))
     (display "s7.o is up to date.\n"))
 
@@ -164,7 +164,7 @@
 ;; 3. Link lext
 (let ((lext-objs '("main.o" "lext_types.o" "lext_io.o" "lext_ffi.o" "lext_module.o"
                    "lext_capture.o" "lext_da.o" "lext_builtins.o" "s7.o" "libnob.o")))
-  (if (any (lambda (obj) (nob.needs-rebuild? (append-builddir "lext") (append-builddir obj)))
+  (if (any (lambda (obj) (libnob.needs-rebuild? (append-builddir "lext") (append-builddir obj)))
            lext-objs)
       (begin
         (display "Linking lext...\n")
@@ -172,7 +172,7 @@
                             (map append-builddir lext-objs)
                             `("-o" ,(append-builddir "lext") "-lm" "-ldl")
                             (split-string-by-spaces ffi-libs))))
-          (if (not (nob.cmd-run args))
+          (if (not (libnob.cmd-run args))
               (error "Failed to link lext"))))
       (display "lext is up to date.\n")))
 

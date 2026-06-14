@@ -1,0 +1,46 @@
+(use "stdlib/basic" "stdlib/c" "stdlib/libnob")
+
+(display "=========================================================\n")
+(display "      lext Automatic Namespace & Import Test Case\n")
+(display "=========================================================\n\n")
+
+;; 1. Check dynamic prefixing from path segment
+(display "--- 1. Testing Path-Based Prefixing ---\n")
+(display (format #f "basic.open-namespace is defined: ~A\n" (defined? 'basic.open-namespace)))
+(display (format #f "c.malloc is defined: ~A\n" (defined? 'c.malloc)))
+(display (format #f "libnob.cmd-run is defined: ~A\n" (defined? 'libnob.cmd-run)))
+
+;; Verify that prefix-free names are NOT defined yet
+(display (format #f "Prefix-free malloc is defined (should be #f): ~A\n" (defined? 'malloc)))
+(display (format #f "Prefix-free cmd-run is defined (should be #f): ~A\n" (defined? 'cmd-run)))
+
+;; 2. Testing open-namespace globally
+(display "\n--- 2. Testing open-namespace Globally ---\n")
+(basic.open-namespace "c")
+(display (format #f "After (open-namespace \"c\"), malloc is defined: ~A\n" (defined? 'malloc)))
+(display (format #f "After (open-namespace \"c\"), free is defined: ~A\n" (defined? 'free)))
+
+;; 3. Testing scoped use-namespace
+(display "\n--- 3. Testing scoped use-namespace ---\n")
+(display (format #f "Before use-namespace, cmd-run is defined: ~A\n" (defined? 'cmd-run)))
+(basic.use-namespace "libnob"
+  (display (format #f "  Inside use-namespace, cmd-run is defined: ~A\n" (defined? 'cmd-run)))
+  (display (format #f "  Inside use-namespace, delete-file is defined: ~A\n" (defined? 'delete-file))))
+(display (format #f "After use-namespace, cmd-run is defined (should be #f): ~A\n" (defined? 'cmd-run)))
+
+;; 4. Testing Export List Filtering (*exports*)
+(display "\n--- 4. Testing Symbol Export Filtering ---\n")
+;; Internal definitions in stdlib/libnob/lib.lext are prefixed with "internal-nob-"
+;; and should NOT be exported under prefix "libnob."
+(display (format #f "libnob.internal-nob-cmd-append is defined (should be #f): ~A\n" (defined? 'libnob.internal-nob-cmd-append)))
+(display (format #f "libnob.internal-libnob is defined (should be #f): ~A\n" (defined? 'libnob.internal-libnob)))
+
+;; 5. Testing Sublet Caching
+(display "\n--- 5. Testing Sublet Environment Caching ---\n")
+;; Load basic into a separate local sublet and verify it imports same cached bindings
+(let ((my-env (sublet (curlet))))
+  (with-let my-env
+    (use "stdlib/c")
+    (display (format #f "  Inside custom env, c.malloc is defined: ~A\n" (defined? 'c.malloc)))))
+
+(display "\nAll namespacing test cases completed successfully!\n")

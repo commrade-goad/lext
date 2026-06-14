@@ -1,5 +1,33 @@
 (use "stdlib/basic" "stdlib/c")
+
+(export minimal-log-level minimal-log-level-ptr minimal-log-level-set!
+        log cmd-new cmd-append cmd-free cmd-run delete-file
+        mkdir-if-not-exists file-exists copy-file
+        copy-directory-recursively read-entire-file write-entire-file
+        get-file-type rename path-name get-current-dir-temp
+        set-current-dir temp-dir-name temp-file-name temp-file-ext
+        temp-running-executable-path nanos-since-unspecified-epoch
+        nprocs read-entire-dir sb-pad-align proc-wait procs-wait
+        procs-flush pipe-create dir-entry-open dir-entry-next
+        dir-entry-close sv-from-cstr sv-from-parts sv-trim sv-trim-left
+        sv-trim-right sv-chop-left sv-chop-right sv-chop-by-delim
+        sv-chop-prefix sv-chop-suffix sv-eq sv-starts-with sv-ends-with
+        sv-ends-with-cstr sv->string temp-reset temp-save temp-rewind
+        temp-alloc temp-strdup temp-strndup da-items da-count
+        da-capacity da-first da-last da-pop da-set! da-reserve da-append da-free walk-dir walk-dir-opt
+        walk-dir-opt-default walk-dir-opt-userdata walk-dir-opt-recursive
+        walk-dir-opt-log-level walk-dir-opt-recursive-set!
+        walk-dir-opt-log-level-set! walk-entry walk-entry-name
+        walk-entry-error walk-entry-posix-dir walk-entry-posix-ent
+        needs-rebuild? needs-rebuild fd-open-for-write fd-open-for-read fd-close
+        cmd-render cmd-run-async cmd-run-async-and-reset
+        cmd-run-async-redirect cmd-run-async-redirect-and-reset
+        cmd-run-sync cmd-run-sync-and-reset cmd-run-sync-redirect
+        cmd-run-sync-redirect-and-reset procs-wait-and-reset
+        procs-append-with-flush chain-begin chain-cmd chain-end)
+
 (define internal-libnob (ffi-open #f))
+(define *libnob-env* (curlet))
 
 (define (internal-nob-struct-val val type)
   (cond
@@ -170,29 +198,29 @@
 (internal-libnob-c-import internal-nob-sv-ends-with              internal-libnob "nob_sv_ends_with"                int     (Nob_String_View Nob_String_View))
 (internal-libnob-c-import internal-nob-sv-ends-with-cstr         internal-libnob "nob_sv_ends_with_cstr"           int     (Nob_String_View string))
 
-;; --- Scheme Wrapper Functions (prefixed with nob.) ---
+;; --- Scheme Wrapper Functions (unprefixed) ---
 
 ;; Global variables
-(define nob.minimal-log-level-ptr (ffi-sym internal-libnob "nob_minimal_log_level"))
+(define minimal-log-level-ptr (ffi-sym internal-libnob "nob_minimal_log_level"))
 
-(define (nob.minimal-log-level)
-  (ffi-deref nob.minimal-log-level-ptr 'int))
+(define (minimal-log-level)
+  (ffi-deref minimal-log-level-ptr 'int))
 
-(define (nob.minimal-log-level-set! val)
-  (ffi-set! nob.minimal-log-level-ptr 'int val))
+(define (minimal-log-level-set! val)
+  (ffi-set! minimal-log-level-ptr 'int val))
 
-;; nob.log: format-based logging
-(define (nob.log level fmt . args)
+;; log: format-based logging
+(define (log level fmt . args)
   (internal-nob-log level "%s" (apply format #f fmt args)))
 
-;; nob.cmd-new: allocate and initialize a new Nob_Cmd
-(define (nob.cmd-new)
+;; cmd-new: allocate and initialize a new Nob_Cmd
+(define (cmd-new)
   (let ((ptr (c.malloc 24)))
     (ffi-set! ptr 'Nob_Cmd '((items . ()) (count . 0) (capacity . 0)))
     ptr))
 
-;; nob.cmd-append: append one or more arguments to a Nob_Cmd
-(define (nob.cmd-append cmd . args)
+;; cmd-append: append one or more arguments to a Nob_Cmd
+(define (cmd-append cmd . args)
   (for-each
     (lambda (arg)
       (let ((str-ptr-buf (c.malloc 8)))
@@ -201,8 +229,8 @@
         (c.free str-ptr-buf)))
     args))
 
-;; nob.cmd-free: bc.free a Nob_Cmd and its internal items buffer
-(define (nob.cmd-free cmd)
+;; cmd-free: free a Nob_Cmd and its internal items buffer
+(define (cmd-free cmd)
   (if (and (not (null? cmd)) (not (eq? cmd 0)))
       (let* ((cmd-struct (ffi-deref cmd 'Nob_Cmd))
              (items-ptr (cdr (assoc 'items cmd-struct))))
@@ -210,19 +238,19 @@
             (c.free items-ptr))
         (c.free cmd))))
 
-;; nob.cmd-run: run a command with Scheme-style keyword arguments.
+;; cmd-run: run a command with Scheme-style keyword arguments.
 ;; Supports passing either a Nob_Cmd pointer OR a list of strings directly.
-(define* (nob.cmd-run cmd-or-args
-                      (async '())
-                      (max-procs 0)
-                      (dont-reset #f)
-                      (stdin-path '())
-                      (stdout-path '())
-                      (stderr-path '()))
+(define* (cmd-run cmd-or-args
+                  (async '())
+                  (max-procs 0)
+                  (dont-reset #f)
+                  (stdin-path '())
+                  (stdout-path '())
+                  (stderr-path '()))
   (let* ((is-list (list? cmd-or-args))
-         (cmd (if is-list (nob.cmd-new) cmd-or-args)))
+         (cmd (if is-list (cmd-new) cmd-or-args)))
     (if is-list
-        (apply nob.cmd-append cmd cmd-or-args))
+        (apply cmd-append cmd cmd-or-args))
     (let* ((opt-list `((async . ,async)
                        (max_procs . ,max-procs)
                        (dont_reset . ,(if dont-reset 1 0))
@@ -231,31 +259,31 @@
                        (stderr_path . ,stderr-path)))
            (ok (not (= (internal-nob-cmd-run-opt cmd opt-list) 0))))
       (if is-list
-          (nob.cmd-free cmd))
+          (cmd-free cmd))
       ok)))
 
-;; nob.delete-file: delete a file
-(define (nob.delete-file path)
+;; delete-file: delete a file
+(define (delete-file path)
   (internal-nob-delete-file path))
 
-;; nob.mkdir-if-not-exists: make directory if it doesn't exist
-(define (nob.mkdir-if-not-exists path)
+;; mkdir-if-not-exists: make directory if it doesn't exist
+(define (mkdir-if-not-exists path)
   (internal-nob-mkdir-if-nexist path))
 
-;; nob.file-exists: check if file exists
-(define (nob.file-exists path)
+;; file-exists: check if file exists
+(define (file-exists path)
   (internal-nob-file-exists path))
 
-;; nob.copy-file: copy file
-(define (nob.copy-file src dst)
+;; copy-file: copy file
+(define (copy-file src dst)
   (not (= (internal-nob-copy-file src dst) 0)))
 
-;; nob.copy-directory-recursively: recursively copy directory
-(define (nob.copy-directory-recursively src dst)
+;; copy-directory-recursively: recursively copy directory
+(define (copy-directory-recursively src dst)
   (not (= (internal-nob-copy-dir-recursively src dst) 0)))
 
-;; nob.read-entire-file: read file into string using string builder FFI
-(define (nob.read-entire-file path)
+;; read-entire-file: read file into string using string builder FFI
+(define (read-entire-file path)
   (let ((sb (c.malloc 24)))
     (ffi-set! sb 'Nob_String_Builder '((items . ()) (count . 0) (capacity . 0)))
     (let ((success (not (= (internal-nob-read-entire-file path sb) 0))))
@@ -277,12 +305,12 @@
             (c.free sb)
             #f)))))
 
-;; nob.write-entire-file: write string data directly to file
-(define (nob.write-entire-file path data)
+;; write-entire-file: write string data directly to file
+(define (write-entire-file path data)
   (not (= (internal-nob-write-entire-file path data (string-length data)) 0)))
 
-;; nob.get-file-type: returns symbol: 'regular, 'directory, 'symlink, or 'other
-(define (nob.get-file-type path)
+;; get-file-type: returns symbol: 'regular, 'directory, 'symlink, or 'other
+(define (get-file-type path)
   (let ((t (internal-nob-get-file-type path)))
     (cond
       ((= t 0) 'regular)
@@ -290,48 +318,48 @@
       ((= t 2) 'symlink)
       (else 'other))))
 
-;; nob.rename: rename file
-(define (nob.rename old-path new-path)
+;; rename: rename file
+(define (rename old-path new-path)
   (not (= (internal-nob-rename old-path new-path) 0)))
 
-;; nob.path-name: returns trailing name component
-(define (nob.path-name path)
+;; path-name: returns trailing name component
+(define (path-name path)
   (internal-nob-path-name path))
 
-;; nob.get-current-dir-temp: returns path to current directory
-(define (nob.get-current-dir-temp)
+;; get-current-dir-temp: returns path to current directory
+(define (get-current-dir-temp)
   (internal-nob-get-current-dir-temp))
 
-;; nob.set-current-dir: set current directory
-(define (nob.set-current-dir path)
+;; set-current-dir: set current directory
+(define (set-current-dir path)
   (not (= (internal-nob-set-current-dir path) 0)))
 
-;; nob.temp-dir-name: returns directory part of path
-(define (nob.temp-dir-name path)
+;; temp-dir-name: returns directory part of path
+(define (temp-dir-name path)
   (internal-nob-temp-dir-name path))
 
-;; nob.temp-file-name: returns file name part of path
-(define (nob.temp-file-name path)
+;; temp-file-name: returns file name part of path
+(define (temp-file-name path)
   (internal-nob-temp-file-name path))
 
-;; nob.temp-file-ext: returns extension part of path
-(define (nob.temp-file-ext path)
+;; temp-file-ext: returns extension part of path
+(define (temp-file-ext path)
   (internal-nob-temp-file-ext path))
 
-;; nob.temp-running-executable-path: returns running binary path
-(define (nob.temp-running-executable-path)
+;; temp-running-executable-path: returns running binary path
+(define (temp-running-executable-path)
   (internal-nob-temp-running-exe-path))
 
-;; nob.nanos-since-unspecified-epoch: returns time in nanoseconds
-(define (nob.nanos-since-unspecified-epoch)
+;; nanos-since-unspecified-epoch: returns time in nanoseconds
+(define (nanos-since-unspecified-epoch)
   (internal-nob-nanos-since-epoch))
 
-;; nob.nprocs: returns CPU core count
-(define (nob.nprocs)
+;; nprocs: returns CPU core count
+(define (nprocs)
   (internal-nob-nprocs))
 
-;; nob.read-entire-dir: read directory and return list of file names
-(define (nob.read-entire-dir parent)
+;; read-entire-dir: read directory and return list of file names
+(define (read-entire-dir parent)
   (let ((children (c.malloc 24)))
     (ffi-set! children 'Nob_File_Paths '((items . ()) (count . 0) (capacity . 0)))
     (let ((success (not (= (internal-nob-read-entire-dir parent children) 0))))
@@ -343,7 +371,7 @@
             (let loop ((i 0))
               (if (< i count)
                   (begin
-                    (let* ((str-ptr (internal-c-ptr+ items-ptr (* i 8)))
+                    (let* ((str-ptr (c.internal-c-ptr+ items-ptr (* i 8)))
                            (str (ffi-deref str-ptr 'string)))
                       (set! result (cons str result))
                       (loop (+ i 1))))))
@@ -354,138 +382,138 @@
             (c.free children)
             #f)))))
 
-;; nob.sb-pad-align: pad string builder to alignment size boundary
-(define (nob.sb-pad-align sb size)
+;; sb-pad-align: pad string builder to alignment size boundary
+(define (sb-pad-align sb size)
   (internal-nob-sb-pad-align sb size))
 
-;; nob.proc-wait: wait for a process
-(define (nob.proc-wait proc)
+;; proc-wait: wait for a process
+(define (proc-wait proc)
   (not (= (internal-nob-proc-wait proc) 0)))
 
-(define (nob.procs-wait procs)
+(define (procs-wait procs)
   (not (= (internal-nob-procs-wait (internal-nob-struct-val procs 'Nob_Procs)) 0)))
 
-;; nob.procs-flush: wait for all processes in procs (by pointer) and empty list
-(define (nob.procs-flush procs-ptr)
+;; procs-flush: wait for all processes in procs (by pointer) and empty list
+(define (procs-flush procs-ptr)
   (not (= (internal-nob-procs-flush procs-ptr) 0)))
 
-;; nob.pipe-create: create a pipe
-(define (nob.pipe-create pipe-ptr)
+;; pipe-create: create a pipe
+(define (pipe-create pipe-ptr)
   (not (= (internal-nob-pipe-create pipe-ptr) 0)))
 
 ;; Chain API wrappers
-(define* (nob.chain-begin chain (stdin-path '()))
+(define* (chain-begin chain (stdin-path '()))
   (not (= (internal-nob-chain-begin-opt chain `((stdin_path . ,stdin-path))) 0)))
 
-(define* (nob.chain-cmd chain cmd (err2out #f) (dont-reset #f))
+(define* (chain-cmd chain cmd (err2out #f) (dont-reset #f))
   (not (= (internal-nob-chain-cmd-opt chain cmd `((err2out . ,(if err2out 1 0)) (dont_reset . ,(if dont-reset 1 0)))) 0)))
 
-(define* (nob.chain-end chain (async '()) (max-procs 0) (stdout-path '()) (stderr-path '()))
+(define* (chain-end chain (async '()) (max-procs 0) (stdout-path '()) (stderr-path '()))
   (not (= (internal-nob-chain-end-opt chain `((async . ,async) (max_procs . ,max-procs) (stdout_path . ,stdout-path) (stderr_path . ,stderr-path))) 0)))
 
 ;; Directory entry iterators
-(define (nob.dir-entry-open dir-path dir-ptr)
+(define (dir-entry-open dir-path dir-ptr)
   (not (= (internal-nob-dir-entry-open dir-path dir-ptr) 0)))
 
-(define (nob.dir-entry-next dir-ptr)
+(define (dir-entry-next dir-ptr)
   (not (= (internal-nob-dir-entry-next dir-ptr) 0)))
 
-(define (nob.dir-entry-close dir-val)
+(define (dir-entry-close dir-val)
   (internal-nob-dir-entry-close dir-val))
 
 ;; String View Wrappers
-(define (nob.sv-from-cstr cstr)
+(define (sv-from-cstr cstr)
   (internal-nob-sv-from-cstr cstr))
 
-(define (nob.sv-from-parts data count)
+(define (sv-from-parts data count)
   (internal-nob-sv-from-parts data count))
 
-(define (nob.sv-trim sv)
+(define (sv-trim sv)
   (internal-nob-sv-trim sv))
 
-(define (nob.sv-trim-left sv)
+(define (sv-trim-left sv)
   (internal-nob-sv-trim-left sv))
 
-(define (nob.sv-trim-right sv)
+(define (sv-trim-right sv)
   (internal-nob-sv-trim-right sv))
 
-(define (nob.sv-chop-left sv-ptr n)
+(define (sv-chop-left sv-ptr n)
   (internal-nob-sv-chop-left sv-ptr n))
 
-(define (nob.sv-chop-right sv-ptr n)
+(define (sv-chop-right sv-ptr n)
   (internal-nob-sv-chop-right sv-ptr n))
 
-(define (nob.sv-chop-by-delim sv-ptr delim)
+(define (sv-chop-by-delim sv-ptr delim)
   (internal-nob-sv-chop-by-delim sv-ptr (char->integer delim)))
 
-(define (nob.sv-chop-prefix sv-ptr prefix)
+(define (sv-chop-prefix sv-ptr prefix)
   (not (= (internal-nob-sv-chop-prefix sv-ptr prefix) 0)))
 
-(define (nob.sv-chop-suffix sv-ptr suffix)
+(define (sv-chop-suffix sv-ptr suffix)
   (not (= (internal-nob-sv-chop-suffix sv-ptr suffix) 0)))
 
-(define (nob.sv-eq a b)
+(define (sv-eq a b)
   (not (= (internal-nob-sv-eq a b) 0)))
 
-(define (nob.sv-starts-with sv prefix)
+(define (sv-starts-with sv prefix)
   (not (= (internal-nob-sv-starts-with sv prefix) 0)))
 
-(define (nob.sv-ends-with sv suffix)
+(define (sv-ends-with sv suffix)
   (not (= (internal-nob-sv-ends-with sv suffix) 0)))
 
-(define (nob.sv-ends-with-cstr sv cstr)
+(define (sv-ends-with-cstr sv cstr)
   (not (= (internal-nob-sv-ends-with-cstr sv cstr) 0)))
 
-(define (nob.sv->string sv)
+(define (sv->string sv)
   (let* ((data  (cdr (assoc 'data sv)))
          (count (cdr (assoc 'count sv))))
     (lext-sv->string count data)))
 
 ;; Temp Allocator wrappers
-(define (nob.temp-reset)
+(define (temp-reset)
   (internal-nob-temp-reset))
 
-(define (nob.temp-save)
+(define (temp-save)
   (internal-nob-temp-save))
 
-(define (nob.temp-rewind checkpoint)
+(define (temp-rewind checkpoint)
   (internal-nob-temp-rewind checkpoint))
 
-(define (nob.temp-strdup cstr)
+(define (temp-strdup cstr)
   (internal-nob-temp-strdup cstr))
 
-(define (nob.temp-strndup cstr size)
+(define (temp-strndup cstr size)
   (internal-nob-temp-strndup cstr size))
 
-(define (nob.temp-alloc size)
+(define (temp-alloc size)
   (internal-nob-temp-alloc size))
 
 ;; --- Dynamic Array Generic Scheme-Macro implementation ---
 
-(define (nob.da-get da)
+(define (da-get da)
   (ffi-deref da 'Nob_Dynamic_Array))
 
-(define (nob.da-set! da val)
+(define (da-set! da val)
   (ffi-set! da 'Nob_Dynamic_Array val))
 
-(define (nob.da-update! da items count capacity)
-  (nob.da-set! da `((items . ,items) (count . ,count) (capacity . ,capacity))))
+(define (da-update! da items count capacity)
+  (da-set! da `((items . ,items) (count . ,count) (capacity . ,capacity))))
 
-(define (nob.da-items da) (cdr (assoc 'items (nob.da-get da))))
-(define (nob.da-count da) (cdr (assoc 'count (nob.da-get da))))
-(define (nob.da-capacity da) (cdr (assoc 'capacity (nob.da-get da))))
+(define (da-items da) (cdr (assoc 'items (da-get da))))
+(define (da-count da) (cdr (assoc 'count (da-get da))))
+(define (da-capacity da) (cdr (assoc 'capacity (da-get da))))
 
-(define (nob.da-free da)
-  (let* ((da-struct (nob.da-get da))
+(define (da-free da)
+  (let* ((da-struct (da-get da))
          (items (cdr (assoc 'items da-struct))))
     (if (and (not (null? items)) (not (eq? items 0)))
         (c.free items))
-    (nob.da-update! da '() 0 0)))
+    (da-update! da '() 0 0)))
 
-(define (nob.da-reserve da expected-capacity element-size)
+(define (da-reserve da expected-capacity element-size)
   (lext-da-reserve da expected-capacity element-size))
 
-(define-macro (nob.da-append da item type)
+(define-macro (da-append da item type)
   (let ((da-var (gensym))
         (da-struct (gensym))
         (items (gensym))
@@ -494,7 +522,7 @@
         (item-ptr (gensym))
         (item-size (gensym)))
     `(let* ((,da-var ,da)
-            (,da-struct (nob.da-get ,da-var))
+            (,da-struct (,(symbol->value 'da-get *libnob-env*) ,da-var))
             (,items (cdr (assoc 'items ,da-struct)))
             (,count (cdr (assoc 'count ,da-struct)))
             (,capacity (cdr (assoc 'capacity ,da-struct)))
@@ -504,15 +532,15 @@
                           ((eq? ',type 'int) 4)
                           ((eq? ',type 'uchar) 1)
                           (else (error "Unsupported type in da-append")))))
-       (nob.da-reserve ,da-var (+ ,count 1) ,item-size)
-       (let* ((,da-struct (nob.da-get ,da-var))
+       (,(symbol->value 'da-reserve *libnob-env*) ,da-var (+ ,count 1) ,item-size)
+       (let* ((,da-struct (,(symbol->value 'da-get *libnob-env*) ,da-var))
               (,items (cdr (assoc 'items ,da-struct)))
-              (,item-ptr (internal-c-ptr+ ,items (* ,count ,item-size))))
+              (,item-ptr (,(symbol->value 'c.internal-c-ptr+ *libnob-env*) ,items (* ,count ,item-size))))
          (ffi-set! ,item-ptr ',type ,item)
-         (nob.da-update! ,da-var ,items (+ ,count 1) (cdr (assoc 'capacity ,da-struct)))))))
+         (,(symbol->value 'da-update! *libnob-env*) ,da-var ,items (+ ,count 1) (cdr (assoc 'capacity ,da-struct)))))))
 
-(define (nob.da-pop da type)
-  (let* ((da-struct (nob.da-get da))
+(define (da-pop da type)
+  (let* ((da-struct (da-get da))
          (items (cdr (assoc 'items da-struct)))
          (count (cdr (assoc 'count da-struct)))
          (capacity (cdr (assoc 'capacity da-struct)) )
@@ -524,22 +552,22 @@
                       (else (error "Unsupported type")))))
     (if (> count 0)
         (let* ((new-count (- count 1))
-               (item-ptr (internal-c-ptr+ items (* new-count item-size)))
+               (item-ptr (c.internal-c-ptr+ items (* new-count item-size)))
                (val (ffi-deref item-ptr type)))
-          (nob.da-update! da items new-count capacity)
+          (da-update! da items new-count capacity)
           val)
         (error "da-pop: empty array"))))
 
-(define (nob.da-first da type)
-  (let* ((da-struct (nob.da-get da))
+(define (da-first da type)
+  (let* ((da-struct (da-get da))
          (items (cdr (assoc 'items da-struct)))
          (count (cdr (assoc 'count da-struct))))
     (if (> count 0)
         (ffi-deref items type)
         (error "da-first: empty array"))))
 
-(define (nob.da-last da type)
-  (let* ((da-struct (nob.da-get da))
+(define (da-last da type)
+  (let* ((da-struct (da-get da))
          (items (cdr (assoc 'items da-struct)))
          (count (cdr (assoc 'count da-struct)))
          (item-size (cond
@@ -549,13 +577,13 @@
                       ((eq? type 'uchar) 1)
                       (else (error "Unsupported type")))))
     (if (> count 0)
-        (let* ((item-ptr (internal-c-ptr+ items (* (- count 1) item-size))))
+        (let* ((item-ptr (c.internal-c-ptr+ items (* (- count 1) item-size))))
           (ffi-deref item-ptr type))
         (error "da-last: empty array"))))
 
 
-;; nob.needs-rebuild: check if output needs rebuilding relative to one or more input files
-(define (nob.needs-rebuild output inputs)
+;; needs-rebuild: check if output needs rebuilding relative to one or more input files
+(define (needs-rebuild output inputs)
   (if (string? inputs)
       (internal-nob-needs-rebuild1 output inputs)
       (let loop ((curr inputs))
@@ -564,28 +592,28 @@
           ((= (internal-nob-needs-rebuild1 output (car curr)) 1) 1)
           (else (loop (cdr curr)))))))
 
-(define (nob.needs-rebuild? output input)
-  (not (= (nob.needs-rebuild output input) 0)))
+(define (needs-rebuild? output input)
+  (not (= (needs-rebuild output input) 0)))
 
 ;; --- File Descriptor Wrappers ---
-(define (nob.fd-open-for-read path)
+(define (fd-open-for-read path)
   (internal-nob-fd-open-for-read path))
 
-(define (nob.fd-open-for-write path)
+(define (fd-open-for-write path)
   (internal-nob-fd-open-for-write path))
 
-(define (nob.fd-close fd)
+(define (fd-close fd)
   (internal-nob-fd-close fd))
 
 ;; --- Procs Wait / Append ---
-(define (nob.procs-wait-and-reset procs-ptr)
+(define (procs-wait-and-reset procs-ptr)
   (not (= (internal-nob-procs-wait-and-reset procs-ptr) 0)))
 
-(define (nob.procs-append-with-flush procs-ptr proc max-procs-count)
+(define (procs-append-with-flush procs-ptr proc max-procs-count)
   (not (= (internal-nob-procs-append-with-flush procs-ptr proc max-procs-count) 0)))
 
 ;; --- Command Render and Run Wrappers ---
-(define (nob.cmd-render cmd)
+(define (cmd-render cmd)
   (let ((sb (c.malloc 24)))
     (ffi-set! sb 'Nob_String_Builder '((items . ()) (count . 0) (capacity . 0)))
     (internal-nob-cmd-render (internal-nob-struct-val cmd 'Nob_Cmd) sb)
@@ -601,34 +629,34 @@
       (c.free sb)
       str)))
 
-(define (nob.cmd-run-async cmd)
+(define (cmd-run-async cmd)
   (internal-nob-cmd-run-async (internal-nob-struct-val cmd 'Nob_Cmd)))
 
-(define (nob.cmd-run-async-and-reset cmd-ptr)
+(define (cmd-run-async-and-reset cmd-ptr)
   (internal-nob-cmd-run-async-and-reset cmd-ptr))
 
-(define (nob.cmd-run-async-redirect cmd redirect)
+(define (cmd-run-async-redirect cmd redirect)
   (internal-nob-cmd-run-async-redirect (internal-nob-struct-val cmd 'Nob_Cmd)
                                        (internal-nob-struct-val redirect 'Nob_Cmd_Redirect)))
 
-(define (nob.cmd-run-async-redirect-and-reset cmd-ptr redirect)
+(define (cmd-run-async-redirect-and-reset cmd-ptr redirect)
   (internal-nob-cmd-run-async-redirect-and-reset cmd-ptr
                                                  (internal-nob-struct-val redirect 'Nob_Cmd_Redirect)))
 
-(define (nob.cmd-run-sync cmd)
+(define (cmd-run-sync cmd)
   (not (= (internal-nob-cmd-run-sync (internal-nob-struct-val cmd 'Nob_Cmd)) 0)))
 
-(define (nob.cmd-run-sync-and-reset cmd-ptr)
+(define (cmd-run-sync-and-reset cmd-ptr)
   (not (= (internal-nob-cmd-run-sync-and-reset cmd-ptr) 0)))
 
-(define (nob.cmd-run-sync-redirect cmd redirect)
+(define (cmd-run-sync-redirect cmd redirect)
   (not (= (internal-nob-cmd-run-sync-redirect (internal-nob-struct-val cmd 'Nob_Cmd)
                                               (internal-nob-struct-val redirect 'Nob_Cmd_Redirect)) 0)))
 
-(define (nob.cmd-run-sync-redirect-and-reset cmd-ptr redirect)
+(define (cmd-run-sync-redirect-and-reset cmd-ptr redirect)
   (not (= (internal-nob-cmd-run-sync-redirect-and-reset cmd-ptr
                                                         (internal-nob-struct-val redirect 'Nob_Cmd_Redirect)) 0)))
 
 ;; --- Directory Walker (native C) ---
-(define* (nob.walk-dir root func (level 0))
+(define* (walk-dir root func (level 0))
   (lext-walk-dir root func level))

@@ -1,5 +1,8 @@
 (use "stdlib/libnob" "stdlib/basic" "stdlib/c")
 
+(basic.open-namespace "basic")
+(open-namespace "c")
+
 (display "=== 1. Testing Type Translation & Declarations ===\n")
 (display (format #f "Translated (* t): ~A\n" (translate-ffi-type '(* t))))
 (display (format #f "Translated (* Nob_Cmd): ~A\n" (translate-ffi-type '(* Nob_Cmd))))
@@ -58,18 +61,13 @@
 
 (display "\n=== 7. Testing open-namespace and use-namespace ===\n")
 
-;; Test open-namespace globally for basic loops
-(open-namespace "bc")
-;; Test open-namespace globally for FFI/libc
-(open-namespace "c")
-
 (display (format #f "After open-namespace c., malloc is defined: ~A\n" (defined? 'malloc)))
 (display (format #f "After open-namespace c., free is defined: ~A\n" (defined? 'free)))
 ;; Verify standard protected operator is not overwritten
 (display (format #f "After open-namespace, standard = is still original: ~A\n" (eq? = (symbol->value '= (rootlet)))))
 
 ;; Test use-namespace locally (scoped)
-(use-namespace "nob"
+(use-namespace "libnob"
   (display (format #f "Inside use-namespace, log is defined: ~A\n" (defined? 'log)))
   (display (format #f "Inside use-namespace, cmd-new is defined: ~A\n" (defined? 'cmd-new))))
 

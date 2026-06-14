@@ -1,12 +1,15 @@
 (use "stdlib/basic" "stdlib/c" "stdlib/libnob")
 
+(basic.open-namespace "basic")
+(open-namespace "c")
+
 (display "=========================================================\n")
 (display "   lext Standard Libraries 100% Coverage Stress Test\n")
 (display "=========================================================\n\n")
 
 ;; Compile helper library for FFI tests
 (let ((cmd-args '("gcc" "-shared" "-fPIC" "test/test_lib.c" "-o" "test/libtest.so")))
-  (if (nob.cmd-run cmd-args)
+  (if (libnob.cmd-run cmd-args)
       (display "[INIT] test/libtest.so compiled successfully.\n")
       (error "Failed to compile test/test_lib.c")))
 
@@ -140,7 +143,7 @@
 (use-namespace "c"
   (display (format #f "  use-namespace block (c.malloc): ~A\n" (defined? 'malloc))))
 
-(open-namespace "bc")
+(open-namespace "basic")
 (let ((loop-checked 0))
   (while (< loop-checked 3)
     (set! loop-checked (+ loop-checked 1)))
@@ -172,199 +175,199 @@
   (c.free ptr))
 
 ;; 2. Log API
-(nob.minimal-log-level-set! 0)
-(display (format #f "  minimal-log-level: ~A\n" (nob.minimal-log-level)))
-(nob.log 0 "Testing log output: ~A" "success")
+(libnob.minimal-log-level-set! 0)
+(display (format #f "  minimal-log-level: ~A\n" (libnob.minimal-log-level)))
+(libnob.log 0 "Testing log output: ~A" "success")
 
 ;; 3. Command API & Render
-(let ((cmd (nob.cmd-new)))
-  (nob.cmd-append cmd "echo" "hello" "world")
-  (display (format #f "  Rendered command: ~S\n" (nob.cmd-render cmd)))
+(let ((cmd (libnob.cmd-new)))
+  (libnob.cmd-append cmd "echo" "hello" "world")
+  (display (format #f "  Rendered command: ~S\n" (libnob.cmd-render cmd)))
   
   ;; Sync and async command execution
-  (display (format #f "  cmd-run sync: ~A\n" (nob.cmd-run cmd)))
-  (display (format #f "  cmd-run-async: ~A\n" (integer? (nob.cmd-run-async cmd))))
+  (display (format #f "  cmd-run sync: ~A\n" (libnob.cmd-run cmd)))
+  (display (format #f "  cmd-run-async: ~A\n" (integer? (libnob.cmd-run-async cmd))))
   
   ;; Sync and async with reset
-  (nob.cmd-append cmd "echo" "reset-test")
-  (display (format #f "  cmd-run-sync-and-reset: ~A\n" (nob.cmd-run-sync-and-reset cmd)))
+  (libnob.cmd-append cmd "echo" "reset-test")
+  (display (format #f "  cmd-run-sync-and-reset: ~A\n" (libnob.cmd-run-sync-and-reset cmd)))
   
-  (nob.cmd-append cmd "echo" "async-reset-test")
-  (let ((pid (nob.cmd-run-async-and-reset cmd)))
-    (display (format #f "  cmd-run-async-and-reset pid: ~A\n" (nob.proc-wait pid))))
+  (libnob.cmd-append cmd "echo" "async-reset-test")
+  (let ((pid (libnob.cmd-run-async-and-reset cmd)))
+    (display (format #f "  cmd-run-async-and-reset pid: ~A\n" (libnob.proc-wait pid))))
     
-  (nob.cmd-free cmd))
+  (libnob.cmd-free cmd))
 
 ;; Command redirects
-(let ((cmd (nob.cmd-new))
+(let ((cmd (libnob.cmd-new))
       (redir (c.malloc 24)))
-  (nob.cmd-append cmd "echo" "redirect-test")
+  (libnob.cmd-append cmd "echo" "redirect-test")
   (ffi-set! redir '(struct (pointer fdin) (pointer fdout) (pointer fderr)) '((fdin . ()) (fdout . ()) (fderr . ())))
-  (display (format #f "  cmd-run-sync-redirect: ~A\n" (nob.cmd-run-sync-redirect cmd redir)))
-  (nob.cmd-append cmd "echo" "redirect-async")
-  (let ((pid (nob.cmd-run-async-redirect cmd redir)))
-    (display (format #f "  cmd-run-async-redirect pid: ~A\n" (nob.proc-wait pid))))
-  (nob.cmd-free cmd)
+  (display (format #f "  cmd-run-sync-redirect: ~A\n" (libnob.cmd-run-sync-redirect cmd redir)))
+  (libnob.cmd-append cmd "echo" "redirect-async")
+  (let ((pid (libnob.cmd-run-async-redirect cmd redir)))
+    (display (format #f "  cmd-run-async-redirect pid: ~A\n" (libnob.proc-wait pid))))
+  (libnob.cmd-free cmd)
   (c.free redir))
 
 ;; 4. File operations & temporary paths
 (let ((temp-path "build/test_temp_file.txt"))
-  (display (format #f "  write-entire-file: ~A\n" (nob.write-entire-file temp-path "Hello Lext File System!")))
-  (display (format #f "  file-exists: ~A\n" (nob.file-exists temp-path)))
-  (display (format #f "  read-entire-file: ~S\n" (nob.read-entire-file temp-path)))
-  (display (format #f "  get-file-type: ~A\n" (nob.get-file-type temp-path)))
+  (display (format #f "  write-entire-file: ~A\n" (libnob.write-entire-file temp-path "Hello Lext File System!")))
+  (display (format #f "  file-exists: ~A\n" (libnob.file-exists temp-path)))
+  (display (format #f "  read-entire-file: ~S\n" (libnob.read-entire-file temp-path)))
+  (display (format #f "  get-file-type: ~A\n" (libnob.get-file-type temp-path)))
   
   ;; Copy and rename
-  (display (format #f "  copy-file: ~A\n" (nob.copy-file temp-path "build/test_temp_copy.txt")))
-  (display (format #f "  rename: ~A\n" (nob.rename "build/test_temp_copy.txt" "build/test_temp_renamed.txt")))
+  (display (format #f "  copy-file: ~A\n" (libnob.copy-file temp-path "build/test_temp_copy.txt")))
+  (display (format #f "  rename: ~A\n" (libnob.rename "build/test_temp_copy.txt" "build/test_temp_renamed.txt")))
   
   ;; Path helpers
-  (display (format #f "  path-name: ~S\n" (nob.path-name temp-path)))
-  (display (format #f "  temp-dir-name: ~S\n" (nob.temp-dir-name temp-path)))
-  (display (format #f "  temp-file-name: ~S\n" (nob.temp-file-name temp-path)))
-  (display (format #f "  temp-file-ext: ~S\n" (nob.temp-file-ext temp-path)))
+  (display (format #f "  path-name: ~S\n" (libnob.path-name temp-path)))
+  (display (format #f "  temp-dir-name: ~S\n" (libnob.temp-dir-name temp-path)))
+  (display (format #f "  temp-file-name: ~S\n" (libnob.temp-file-name temp-path)))
+  (display (format #f "  temp-file-ext: ~S\n" (libnob.temp-file-ext temp-path)))
   
-  (nob.delete-file temp-path)
-  (nob.delete-file "build/test_temp_renamed.txt"))
+  (libnob.delete-file temp-path)
+  (libnob.delete-file "build/test_temp_renamed.txt"))
 
-(display (format #f "  get-current-dir-temp: ~S\n" (nob.get-current-dir-temp)))
-(display (format #f "  temp-running-executable-path: ~S\n" (nob.temp-running-executable-path)))
-(display (format #f "  nanos-since-unspecified-epoch: ~A\n" (nob.nanos-since-unspecified-epoch)))
-(display (format #f "  nprocs: ~A\n" (nob.nprocs)))
-(display (format #f "  read-entire-dir: ~A\n" (list? (nob.read-entire-dir "stdlib"))))
+(display (format #f "  get-current-dir-temp: ~S\n" (libnob.get-current-dir-temp)))
+(display (format #f "  temp-running-executable-path: ~S\n" (libnob.temp-running-executable-path)))
+(display (format #f "  nanos-since-unspecified-epoch: ~A\n" (libnob.nanos-since-unspecified-epoch)))
+(display (format #f "  nprocs: ~A\n" (libnob.nprocs)))
+(display (format #f "  read-entire-dir: ~A\n" (list? (libnob.read-entire-dir "stdlib"))))
 
 ;; Directory copy and walk
-(nob.mkdir-if-not-exists "build/test_dir")
-(nob.copy-directory-recursively "stdlib/basic" "build/test_dir")
+(libnob.mkdir-if-not-exists "build/test_dir")
+(libnob.copy-directory-recursively "stdlib/basic" "build/test_dir")
 (let ((walk-count 0))
-  (nob.walk-dir "build/test_dir" (lambda (p t l) (set! walk-count (+ walk-count 1)) #t))
+  (libnob.walk-dir "build/test_dir" (lambda (p t l) (set! walk-count (+ walk-count 1)) #t))
   (display (format #f "  walk-dir walked ~A files/dirs\n" walk-count)))
 ;; Cleanup copied dir
-(nob.delete-file "build/test_dir/lib.lext")
-(nob.delete-file "build/test_dir")
+(libnob.delete-file "build/test_dir/lib.lext")
+(libnob.delete-file "build/test_dir")
 
 ;; String builder padding
 (let ((sb (c.malloc 24)))
   (ffi-set! sb 'Nob_String_Builder '((items . ()) (count . 0) (capacity . 0)))
-  (nob.sb-pad-align sb 16)
+  (libnob.sb-pad-align sb 16)
   (let* ((sb-struct (ffi-deref sb 'Nob_String_Builder))
          (count (cdr (assoc 'count sb-struct))))
     (display (format #f "  sb-pad-align count: ~A\n" count)))
-  (nob.cmd-free sb))
+  (libnob.cmd-free sb))
 
 ;; 5. Processes wait & flush API
 (let* ((procs (c.malloc 24)))
   (ffi-set! procs 'Nob_Procs '((items . ()) (count . 0) (capacity . 0)))
   ;; Add some dummy child process
-  (let* ((cmd (nob.cmd-new)))
-    (nob.cmd-append cmd "sleep" "0.1")
-    (let ((pid (nob.cmd-run-async-and-reset cmd)))
-      (nob.procs-append-with-flush procs pid 4)
-      (display (format #f "  procs count after append: ~A\n" (nob.da-count procs)))
-      (display (format #f "  procs-wait-and-reset: ~A\n" (nob.procs-wait-and-reset procs))))))
+  (let* ((cmd (libnob.cmd-new)))
+    (libnob.cmd-append cmd "sleep" "0.1")
+    (let ((pid (libnob.cmd-run-async-and-reset cmd)))
+      (libnob.procs-append-with-flush procs pid 4)
+      (display (format #f "  procs count after append: ~A\n" (libnob.da-count procs)))
+      (display (format #f "  procs-wait-and-reset: ~A\n" (libnob.procs-wait-and-reset procs))))))
 
 ;; Pipes API
 (let ((pipe-ptr (c.malloc 8)))
-  (display (format #f "  pipe-create: ~A\n" (nob.pipe-create pipe-ptr)))
+  (display (format #f "  pipe-create: ~A\n" (libnob.pipe-create pipe-ptr)))
   (let* ((pipe-struct (ffi-deref pipe-ptr 'Nob_Pipe))
          (read-fd (cdr (assoc 'read pipe-struct)))
          (write-fd (cdr (assoc 'write pipe-struct))))
     (display (format #f "    read fd: ~A, write fd: ~A\n" read-fd write-fd))
-    (nob.fd-close read-fd)
-    (nob.fd-close write-fd))
+    (libnob.fd-close read-fd)
+    (libnob.fd-close write-fd))
   (c.free pipe-ptr))
 
 ;; Chains API
-(let ((chain (c.malloc 40))
-      (cmd (nob.cmd-new)))
-  (nob.cmd-append cmd "echo" "chain-hello")
-  (display (format #f "  chain-begin: ~A\n" (nob.chain-begin chain)))
-  (display (format #f "  chain-cmd: ~A\n" (nob.chain-cmd chain cmd :err2out #t :dont-reset #t)))
-  (display (format #f "  chain-end: ~A\n" (nob.chain-end chain :max-procs 4)))
-  (nob.cmd-free cmd)
+(let ((chain (c.calloc 1 40))
+      (cmd (libnob.cmd-new)))
+  (libnob.cmd-append cmd "echo" "chain-hello")
+  (display (format #f "  chain-begin: ~A\n" (libnob.chain-begin chain)))
+  (display (format #f "  chain-cmd: ~A\n" (libnob.chain-cmd chain cmd :err2out #t :dont-reset #t)))
+  (display (format #f "  chain-end: ~A\n" (libnob.chain-end chain :max-procs 4)))
+  (libnob.cmd-free cmd)
   (c.free chain))
 
 ;; Directory iterator API
 (let ((dir-ent (c.malloc 32))) ; size of Nob_Dir_Entry
-  (display (format #f "  dir-entry-open: ~A\n" (nob.dir-entry-open "stdlib" dir-ent)))
-  (display (format #f "  dir-entry-next: ~A\n" (nob.dir-entry-next dir-ent)))
-  (nob.dir-entry-close (ffi-deref dir-ent 'Nob_Dir_Entry))
+  (display (format #f "  dir-entry-open: ~A\n" (libnob.dir-entry-open "stdlib" dir-ent)))
+  (display (format #f "  dir-entry-next: ~A\n" (libnob.dir-entry-next dir-ent)))
+  (libnob.dir-entry-close (ffi-deref dir-ent 'Nob_Dir_Entry))
   (c.free dir-ent))
 
 ;; 6. String Views API
-(let* ((sv1 (nob.sv-from-cstr "   Trimmed SV!   "))
-       (sv2 (nob.sv-from-parts (cdr (assoc 'data sv1)) (cdr (assoc 'count sv1))))
-       (trimmed (nob.sv-trim sv2))
-       (left (nob.sv-trim-left sv1))
-       (right (nob.sv-trim-right sv1)))
-  (display (format #f "  sv->string: ~S\n" (nob.sv->string trimmed)))
-  (display (format #f "  sv-eq: ~A\n" (nob.sv-eq sv1 sv2)))
-  (display (format #f "  sv-starts-with: ~A\n" (nob.sv-starts-with sv1 (nob.sv-from-cstr "   "))))
-  (display (format #f "  sv-ends-with: ~A\n" (nob.sv-ends-with sv1 (nob.sv-from-cstr "   "))))
-  (display (format #f "  sv-ends-with-cstr: ~A\n" (nob.sv-ends-with-cstr sv1 "   "))))
+(let* ((sv1 (libnob.sv-from-cstr "   Trimmed SV!   "))
+       (sv2 (libnob.sv-from-parts (cdr (assoc 'data sv1)) (cdr (assoc 'count sv1))))
+       (trimmed (libnob.sv-trim sv2))
+       (left (libnob.sv-trim-left sv1))
+       (right (libnob.sv-trim-right sv1)))
+  (display (format #f "  sv->string: ~S\n" (libnob.sv->string trimmed)))
+  (display (format #f "  sv-eq: ~A\n" (libnob.sv-eq sv1 sv2)))
+  (display (format #f "  sv-starts-with: ~A\n" (libnob.sv-starts-with sv1 (libnob.sv-from-cstr "   "))))
+  (display (format #f "  sv-ends-with: ~A\n" (libnob.sv-ends-with sv1 (libnob.sv-from-cstr "   "))))
+  (display (format #f "  sv-ends-with-cstr: ~A\n" (libnob.sv-ends-with-cstr sv1 "   "))))
 
 ;; String View Chopping
-(let* ((sv (nob.sv-from-cstr "foo:bar:baz"))
+(let* ((sv (libnob.sv-from-cstr "foo:bar:baz"))
        (sv-ptr (c.malloc 16)))
   (ffi-set! sv-ptr 'Nob_String_View sv)
-  (let* ((chopped1 (nob.sv-chop-left sv-ptr 4))
-         (chopped2 (nob.sv-chop-right sv-ptr 4)))
-    (display (format #f "  sv-chop-left: ~S\n" (nob.sv->string chopped1)))
-    (display (format #f "  sv-chop-right: ~S\n" (nob.sv->string chopped2))))
+  (let* ((chopped1 (libnob.sv-chop-left sv-ptr 4))
+         (chopped2 (libnob.sv-chop-right sv-ptr 4)))
+    (display (format #f "  sv-chop-left: ~S\n" (libnob.sv->string chopped1)))
+    (display (format #f "  sv-chop-right: ~S\n" (libnob.sv->string chopped2))))
   
   (ffi-set! sv-ptr 'Nob_String_View sv)
-  (let ((chopped3 (nob.sv-chop-by-delim sv-ptr #\:)))
-    (display (format #f "  sv-chop-by-delim: ~S\n" (nob.sv->string chopped3))))
+  (let ((chopped3 (libnob.sv-chop-by-delim sv-ptr #\:)))
+    (display (format #f "  sv-chop-by-delim: ~S\n" (libnob.sv->string chopped3))))
     
   (ffi-set! sv-ptr 'Nob_String_View sv)
-  (display (format #f "  sv-chop-prefix: ~A\n" (nob.sv-chop-prefix sv-ptr (nob.sv-from-cstr "foo"))))
-  (display (format #f "  sv-chop-suffix: ~A\n" (nob.sv-chop-suffix sv-ptr (nob.sv-from-cstr "baz"))))
+  (display (format #f "  sv-chop-prefix: ~A\n" (libnob.sv-chop-prefix sv-ptr (libnob.sv-from-cstr "foo"))))
+  (display (format #f "  sv-chop-suffix: ~A\n" (libnob.sv-chop-suffix sv-ptr (libnob.sv-from-cstr "baz"))))
   (c.free sv-ptr))
 
 ;; 7. Temp Allocator API
-(nob.temp-reset)
-(let* ((checkpoint (nob.temp-save))
-       (str1 (nob.temp-strdup "Temp allocated string"))
-       (str2 (nob.temp-strndup "Temp limit string" 10))
-       (raw-buf (nob.temp-alloc 100)))
+(libnob.temp-reset)
+(let* ((checkpoint (libnob.temp-save))
+       (str1 (libnob.temp-strdup "Temp allocated string"))
+       (str2 (libnob.temp-strndup "Temp limit string" 10))
+       (raw-buf (libnob.temp-alloc 100)))
   (display (format #f "  temp-strdup: ~S\n" str1))
   (display (format #f "  temp-strndup: ~S\n" str2))
   (display (format #f "  temp-alloc ptr: ~A\n" (c-pointer? raw-buf)))
-  (nob.temp-rewind checkpoint))
+  (libnob.temp-rewind checkpoint))
 
 ;; 8. Dynamic Arrays API
 (let ((da (c.malloc 24)))
-  (nob.da-set! da '((items . ()) (count . 0) (capacity . 0)))
-  (nob.da-reserve da 10 4) ; reserve for 10 ints
-  (nob.da-append da 100 int)
-  (nob.da-append da 200 int)
-  (display (format #f "  da-items ptr: ~A\n" (c-pointer? (nob.da-items da))))
-  (display (format #f "  da-count: ~A\n" (nob.da-count da)))
-  (display (format #f "  da-capacity: ~A\n" (nob.da-capacity da)))
-  (display (format #f "  da-first: ~A\n" (nob.da-first da 'int)))
-  (display (format #f "  da-last: ~A\n" (nob.da-last da 'int)))
-  (display (format #f "  da-pop: ~A\n" (nob.da-pop da 'int)))
-  (nob.da-free da)
+  (libnob.da-set! da '((items . ()) (count . 0) (capacity . 0)))
+  (libnob.da-reserve da 10 4) ; reserve for 10 ints
+  (libnob.da-append da 100 int)
+  (libnob.da-append da 200 int)
+  (display (format #f "  da-items ptr: ~A\n" (c-pointer? (libnob.da-items da))))
+  (display (format #f "  da-count: ~A\n" (libnob.da-count da)))
+  (display (format #f "  da-capacity: ~A\n" (libnob.da-capacity da)))
+  (display (format #f "  da-first: ~A\n" (libnob.da-first da 'int)))
+  (display (format #f "  da-last: ~A\n" (libnob.da-last da 'int)))
+  (display (format #f "  da-pop: ~A\n" (libnob.da-pop da 'int)))
+  (libnob.da-free da)
   (c.free da))
 
-;; 9. bc.shift
+;; 9. basic.shift
 (let ((lst '("x" "y" "z")))
-  (let ((val (bc.shift lst)))
-    (display (format #f "  bc.shift first: ~S\n" val))
-    (display (format #f "  bc.shift remainder: ~S\n" lst))))
+  (let ((val (basic.shift lst)))
+    (display (format #f "  basic.shift first: ~S\n" val))
+    (display (format #f "  basic.shift remainder: ~S\n" lst))))
 
 ;; 10. Rebuild dependencies checks
-(display (format #f "  needs-rebuild: ~A\n" (nob.needs-rebuild "build/lext" '("src/main.c" "src/nob.c"))))
-(display (format #f "  needs-rebuild?: ~A\n" (nob.needs-rebuild? "build/lext" "src/main.c")))
+(display (format #f "  needs-rebuild: ~A\n" (libnob.needs-rebuild "build/lext" '("src/main.c" "src/nob.c"))))
+(display (format #f "  needs-rebuild?: ~A\n" (libnob.needs-rebuild? "build/lext" "src/main.c")))
 
 ;; 11. File Descriptors API
-(let ((fd (nob.fd-open-for-write "build/test_fd_stress.txt")))
+(let ((fd (libnob.fd-open-for-write "build/test_fd_stress.txt")))
   (display (format #f "  fd-open-for-write: ~A\n" (>= fd 0)))
-  (nob.fd-close fd))
-(let ((fd (nob.fd-open-for-read "build/test_fd_stress.txt")))
+  (libnob.fd-close fd))
+(let ((fd (libnob.fd-open-for-read "build/test_fd_stress.txt")))
   (display (format #f "  fd-open-for-read: ~A\n" (>= fd 0)))
-  (nob.fd-close fd))
-(nob.delete-file "build/test_fd_stress.txt")
+  (libnob.fd-close fd))
+(libnob.delete-file "build/test_fd_stress.txt")
 
 ;; ============================================================================
 ;; PART C: Public Bounds Checking API Tests
@@ -452,15 +455,14 @@
   (c.with-c-string-array (s-arr-ns '("ns1" "ns2"))
     (display (format #f "  c.with-c-string-array: ~S\n" (c.string-array->list s-arr-ns))))
 
-  (let ((out-ns (bc.capture (display "Stdout consistent!\n"))))
-    (display (format #f "  bc.capture output: ~S\n" out-ns)))
+  (let ((out-ns (basic.capture (display "Stdout consistent!\n"))))
+    (display (format #f "  basic.capture output: ~S\n" out-ns)))
 
   (c.free p-tracked)
   (c.raw-free p-raw))
 
 ;; 12. clean up helper dynamic lib
 (ffi-close libtest)
-(nob.delete-file "test/libtest.so")
+(libnob.delete-file "test/libtest.so")
 
 (display "\nAll standard library functions checked and passed successfully!\n")
-

@@ -1,7 +1,7 @@
 (use "stdlib/basic" "stdlib/c")
 
 ;; Open namespaces for standard loops and FFI memory/utilities
-(open-namespace "bc")
+(basic.open-namespace "basic")
 (open-namespace "c")
 
 (define sdl (ffi-open "libSDL2.so"))

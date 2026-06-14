@@ -93,19 +93,40 @@ Inside your script:
 ;; Output: ("arg1" "arg2" "hello world")
 ```
 
-### 4. Module System (`use`)
-To easily structure your code, `lext` includes a module loading system. You can specify directories where modules are stored using the `LEXT_HOME` environment variable (using a colon `:` as a path separator).
+### 4. Module System (`use`) & Namespaces
+To easily structure your code, `lext` includes a module loading system. You specify root directories where modules are stored using the `LEXT_HOME` environment variable (using a colon `:` as a path separator).
 
-The `use` function locates and loads the `lib.scm` script inside the specified module subdirectory (i.e. `LEXT_HOME/<module>/lib.scm`). It tracks loaded modules using a high-performance `MeowHash` hash table to prevent reloading the same module multiple times.
+The `use` function locates and loads the `lib.lext` script inside the specified module subdirectory (e.g. `LEXT_HOME/stdlib/basic/lib.lext`).
 
-You can load a single module or multiple modules in a single variadic call:
+#### Dynamic Prefix Namespacing
+When you use a module, Lext dynamically prefixes all of its exported symbols with the last path segment of the module string.
+* Loading `(use "stdlib/libnob")` defines its symbols as `libnob.cmd-run`, `libnob.delete-file`, etc.
+* Loading `(use "stdlib/basic")` defines its symbols as `basic.open-namespace`, `basic.for`, etc.
+* Loading `(use "stdlib/c")` defines its symbols as `c.malloc`, `c.free`, etc.
+
+#### Module Exports
+Inside a module's `lib.lext` file, the public API is declared using the `(export ...)` macro:
 ```scheme
-;; Load basic and libnob modules from LEXT_HOME search paths
-(use "libnob" "basic")
+;; Inside stdlib/basic/lib.lext
+(export while foreach for capture shift open-namespace use-namespace)
 ```
+Only symbols listed in `export` (or all symbols not prefixed with `internal-` if `export` is omitted) will be exported to the caller's environment.
 
-- **Arguments**: One or more strings or symbols representing module names.
-- **Environment Variable**: `LEXT_HOME` must be set to the directory containing the module subdirectories.
+#### Removing Prefixes
+To strip prefixes and use functions prefix-free:
+1. **Globally (`open-namespace`)**:
+   ```scheme
+   (basic.open-namespace "basic") ;; Expose basic symbols globally. Now you can call open-namespace directly!
+   (open-namespace "c")           ;; Expose c symbols globally (e.g. malloc, free)
+   ```
+2. **Locally / Scoped (`use-namespace`)**:
+   ```scheme
+   (basic.use-namespace "libnob"
+     (cmd-run '("echo" "hello"))) ;; Exposed only within this block
+   ```
+
+#### Double Loading Prevention & Caching
+Lext hashes the absolute path of every evaluated module using a high-performance `MeowHash` key and caches the loaded sublet environment. Subsequent calls to `use` for the same module will map bindings from the cache without re-running the module's file on disk.
 
 ---
 
@@ -114,7 +135,7 @@ You can load a single module or multiple modules in a single variadic call:
 `lext` ships with a set of modular libraries under the `stdlib` directory.
 
 ### 1. `basic` Module (`stdlib/basic`)
-Contains core language extensions for pure Scheme. Loaded via `(use "basic")`. Typically, you open its namespace globally using `(open-namespace "bc")`.
+Contains core language extensions for pure Scheme. Loaded via `(use "stdlib/basic")`. Typically, you open its namespace globally using `(basic.open-namespace "basic")`.
 
 #### **Loop Constructs**
 The module provides convenient imperative loops:
@@ -143,7 +164,7 @@ The module provides convenient imperative loops:
 ---
 
 ### 2. `c` Module (`stdlib/c`)
-Contains low-level C FFI wrappers, libc allocations, and type definitions. Loaded via `(use "c")`. Typically, you open its namespace globally using `(open-namespace "c")`.
+Contains low-level C FFI wrappers, libc allocations, and type definitions. Loaded via `(use "stdlib/c")`. Typically, you open its namespace globally using `(open-namespace "c")` after basic is opened.
 
 #### **Memory Allocations & Helpers**
 Provides direct bindings to C library memory routines, prefixed with `c.` (which become prefix-free when the namespace is opened):

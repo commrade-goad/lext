@@ -1,5 +1,7 @@
-;;;; nob_demo.lext - Comprehensive Demonstration of basic.lext, c.lext, and libnob.lext
 (use "stdlib/libnob" "stdlib/basic" "stdlib/c")
+
+(basic.open-namespace "basic")
+(open-namespace "c")
 
 (display "=========================================================\n")
 (display "         lext FFI & stdlib/c Dev Kit Showcase\n")
@@ -8,7 +10,7 @@
 ;; 1. Compile C Shared Library using libnob's cmd runner
 (display "--- 1. Compiling test_lib.c to libtest.so ---\n")
 (let ((cmd-args '("gcc" "-shared" "-fPIC" "test/test_lib.c" "-o" "libtest.so")))
-  (if (nob.cmd-run cmd-args)
+  (if (libnob.cmd-run cmd-args)
       (display "Compilation successful: libtest.so created.\n")
       (error "Failed to compile test/test_lib.c")))
 
@@ -74,7 +76,7 @@
 ;; 7. Directory walking
 (display "\n--- 5. Traversal using walk-dir ---\n")
 (display "Listing workspace Lext files:\n")
-(nob.walk-dir "."
+(libnob.walk-dir "."
               (lambda (path type level)
                 (if (and (eq? type 'regular) (ends-with-lext? path))
                     (display (format #f "  - ~A\n" path)))
@@ -94,5 +96,5 @@
 
 ;; 9. Clean up
 (display "\nCleaning up libtest.so...\n")
-(nob.delete-file "libtest.so")
+(libnob.delete-file "libtest.so")
 (display "Done!\n")

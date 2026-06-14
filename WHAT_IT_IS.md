@@ -55,10 +55,15 @@ Key built-in s7 features available globally in Lext include:
 
 ## 3. The Module System (`use`) & Search Paths
 
-The `use` function dynamically locates and loads module entry-point libraries. It uses the `LEXT_HOME` environment variable (paths delimited by colon `:`) as search roots.
+The `use` function dynamically locates, namespaces, and loads module entry-point libraries. It uses the `LEXT_HOME` environment variable (paths delimited by colon `:`) as search roots.
 
-* When you call `(use "stdlib/basic")`, Lext searches each path in `LEXT_HOME` for a directory named `stdlib/basic` containing a file named `lib.lext`.
-* **Double Loading Prevention**: Lext prevents redundant disk reads and variable re-evaluations. The interpreter hashes the absolute path of every evaluated module file using a high-performance **MeowHash** key and caches it in a global tracking table.
+* **Search Path**: When you call `(use "stdlib/basic")`, Lext searches each path in `LEXT_HOME` for a directory named `stdlib/basic` containing a file named `lib.lext`.
+* **Dynamic Prefix Namespacing**: Lext automatically prefixes all public bindings imported from the module with the last segment of the module's path name.
+  * `(use "stdlib/basic")` yields bindings prefixed with `basic.` (e.g. `basic.open-namespace`, `basic.for`).
+  * `(use "stdlib/c")` yields bindings prefixed with `c.` (e.g. `c.malloc`, `c.free`).
+  * `(use "stdlib/libnob")` yields bindings prefixed with `libnob.` (e.g. `libnob.cmd-run`, `libnob.delete-file`).
+* **Symbol Exports**: Modules declare their public API using the `(export ...)` macro inside their `lib.lext` files. Only those listed symbols are exported. If `(export ...)` is omitted, all symbols except those starting with `"internal-"` are exported.
+* **Double Loading Prevention & Caching**: Lext hashes the absolute path of every evaluated module file using a high-performance **MeowHash** key. The loaded sublet environment is cached in a global tracking table, allowing future `use` requests to instantly copy bindings to different lexical scopes without re-running the source file.
 
 ### Example:
 ```scheme
@@ -200,9 +205,9 @@ The `lext` interpreter registers several low-level primitives in the global envi
 
 This module extends the core Scheme syntax with standard control blocks, namespace managers, list utilities, and stdout capture tools.
 
-### A. Loop Constructs (Exposed globally and under `bc.` prefix)
+### A. Loop Constructs (Exposed globally and under `basic.` prefix)
 
-* **`while`** / **`bc.while`** (macro)  
+* **`while`** / **`basic.while`** (macro)  
   Loops while a condition is true.
   ```scheme
   (let ((i 0))
@@ -211,7 +216,7 @@ This module extends the core Scheme syntax with standard control blocks, namespa
       (set! i (+ i 1))))
   ```
 
-* **`for`** / **`bc.for`** (macro)  
+* **`for`** / **`basic.for`** (macro)  
   Index range loop. Syntax: `(for (var start end [step]) body ...)`. The `end` boundary is exclusive.
   ```scheme
   ;; Prints: 0 1 2
@@ -221,7 +226,7 @@ This module extends the core Scheme syntax with standard control blocks, namespa
   (for (i 5 0 -2) (display i))
   ```
 
-* **`foreach`** / **`bc.foreach`** (macro)  
+* **`foreach`** / **`basic.foreach`** (macro)  
   Iterates over each item of a Scheme list.
   ```scheme
   (foreach (x '(apple orange banana))
@@ -231,21 +236,22 @@ This module extends the core Scheme syntax with standard control blocks, namespa
 ### B. Namespace Strippers
 
 * **`(open-namespace prefix-arg)`**  
-  Globally registers prefix-free copies of all variables matching `prefix-arg` (e.g. `"bc"`, `"c"`), while protecting core compiler symbols.
+  Globally registers prefix-free copies of all variables matching `prefix-arg` (e.g. `"basic"`, `"c"`), while protecting core compiler symbols.
   ```scheme
-  (open-namespace "bc") ;; strips "bc." prefix
+  (basic.open-namespace "basic") ;; strips "basic." prefix, making open-namespace globally prefix-free
+  (open-namespace "c")           ;; strips "c." prefix
   ```
 
 * **`(use-namespace prefix-arg . body)`**  
   Temporarily strips prefixes within the lexical scope of `body`.
   ```scheme
-  (use-namespace "bc"
-    (for (i 0 3) (display i)))
+  (basic.use-namespace "libnob"
+    (display (defined? 'cmd-run))) ;; #t inside this block
   ```
 
 ### C. List Mutation
 
-* **`shift`** / **`bc.shift`** (macro)  
+* **`shift`** / **`basic.shift`** (macro)  
   Pops the first element of a Scheme list and updates the list variable in place. Returns the popped element, or `#f` if the list is empty.
   ```scheme
   (define lst '("a" "b" "c"))
@@ -256,7 +262,7 @@ This module extends the core Scheme syntax with standard control blocks, namespa
 
 ### D. Output Capture
 
-* **`capture`** / **`bc.capture`** (macro)  
+* **`capture`** / **`basic.capture`** (macro)  
   Runs the body and captures anything it outputs to stdout, returning it as a string.
   ```scheme
   (define output (capture

@@ -1,8 +1,10 @@
 ;;;; basic.scm - Ultimate Dev Stdlib for s7 Scheme FFI
 ;;;; Part of standard library split: Basic/pure Scheme side
 
+(export while foreach for capture shift open-namespace use-namespace)
+
 ;; --- Loop Constructs (while, foreach, for) ---
-(define-macro (bc.while cond . body)
+(define-macro (while cond . body)
   (let ((loop (gensym)))
     `(let ,loop ()
        (if ,cond
@@ -10,7 +12,7 @@
              ,@body
              (,loop))))))
 
-(define-macro (bc.foreach clause . body)
+(define-macro (foreach clause . body)
   (let ((var (car clause))
         (lst (cadr clause))
         (loop (gensym))
@@ -21,7 +23,7 @@
              ,@body
              (,loop (cdr ,curr)))))))
 
-(define-macro (bc.for clause . body)
+(define-macro (for clause . body)
   (cond
     ;; Range style: (for (var start end))
     ((and (list? clause) (= (length clause) 3))
@@ -54,16 +56,6 @@
                   (,loop (+ ,var ,incr))))))))
     (else
      (error "invalid for syntax" clause))))
-
-;; --- Global Loop Macros (for convenience without bc. prefix) ---
-(define-macro (while cond . body)
-  `(bc.while ,cond ,@body))
-
-(define-macro (foreach clause . body)
-  `(bc.foreach ,clause ,@body))
-
-(define-macro (for clause . body)
-  `(bc.for ,clause ,@body))
 
 
 ;; --- Namespace Stripper & Importer Utilities ---
@@ -115,19 +107,13 @@
        ,@body)))
 
 ;; --- Output Capture Macros ---
-(define-macro (bc.capture . body)
+(define-macro (capture . body)
   `(lext-capture-output (lambda () ,@body)))
 
-(define-macro (capture . body)
-  `(bc.capture ,@body))
-
 ;; --- List Mutation Macros ---
-(define-macro (bc.shift lst)
+(define-macro (shift lst)
   `(if (not (null? ,lst))
        (let ((first (car ,lst)))
          (set! ,lst (cdr ,lst))
          first)
        #f))
-
-(define-macro (shift lst)
-  `(bc.shift ,lst))
