@@ -5,4 +5,32 @@
 (unless (defined? '*libc*)
   (load (string-append *s7-dir* "libc.scm") (rootlet)))
 
+;; Dynamically resolve real stdin and fileno from the process memory using Lext dynamic FFI
+(use "stdlib/c")
+(define libc-handle (ffi-open #f))
+(define stdin-addr (ffi-sym libc-handle "stdin"))
+(define stdin (if (c.null-ptr? stdin-addr) (c.c-pointer 0) (c.deref stdin-addr 'pointer)))
+(c.c-import fileno libc-handle "fileno" int (pointer))
+
+(unless (defined? 'stdin *libc*) (varlet *libc* 'stdin stdin))
+(unless (defined? 'fileno *libc*) (varlet *libc* 'fileno fileno))
+
+;; Inject termios stubs into *libc* for repl.scm compatibility if not already defined
+(for-each
+  (lambda (pair)
+    (unless (defined? (car pair) *libc*)
+      (varlet *libc* (car pair) (cdr pair))))
+  (list (cons 'O_RDONLY 0)
+        (cons 'termios.make (lambda () (inlet 'c_lflag 0 'c_cc (make-vector 32 0))))
+        (cons 'tcgetattr (lambda (fd buf) 0))
+        (cons 'termios.c_lflag (lambda (buf) (buf 'c_lflag)))
+        (cons 'termios.set_c_lflag (lambda (buf val) (set! (buf 'c_lflag) val)))
+        (cons 'ECHO 8)
+        (cons 'ICANON 2)
+        (cons 'termios.set_c_cc (lambda (buf idx val) (set! ((buf 'c_cc) idx) val)))
+        (cons 'VMIN 6)
+        (cons 'VTIME 5)
+        (cons 'tcsetattr (lambda (fd actions buf) 0))
+        (cons 'TCSAFLUSH 2)))
+
 (load (string-append *s7-dir* "repl.scm") (curlet))

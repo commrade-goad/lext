@@ -1,0 +1,121 @@
+(use "stdlib/s7/json"
+     "stdlib/s7/r7rs"
+     "stdlib/s7/lint"
+     "stdlib/s7/case"
+     "stdlib/s7/debug"
+     "stdlib/s7/loop"
+     "stdlib/s7/mockery"
+     "stdlib/s7/profile"
+     "stdlib/s7/reactive"
+     "stdlib/s7/stuff"
+     "stdlib/s7/write"
+     "stdlib/s7/repl")
+
+(display "=========================================================\n")
+(display "      Lext s7 Standard Modules - Complete Suite\n")
+(display "=========================================================\n\n")
+
+(define-macro (assert condition message)
+  `(if (not ,condition)
+       (error (format #f "Assertion Failed: ~A (expected: ~A)" ,message ',condition))))
+
+;; 1. Testing JSON Module
+(display "--- 1. Testing JSON Module ---\n")
+(let* ((json-str "{\"a\":1,\"b\":[10,20,30],\"c\":null,\"d\":true}")
+       (parsed (json.json->s7 json-str)))
+  (assert (let? parsed) "Parsed JSON should be a let")
+  (assert (= (parsed 'a) 1) "Parsed a should be 1")
+  (assert (null? (parsed 'c)) "null check on parsed c failed")
+  (assert (eq? (parsed 'd) #t) "boolean check on parsed d failed")
+  (let ((serialized (with-output-to-string (lambda () (json.s7->json parsed)))))
+    (display (format #f "  Serialized back: ~A\n" serialized))
+    (let ((re-parsed (json.json->s7 serialized)))
+      (assert (= (re-parsed 'a) 1) "Re-parsed a should be 1"))))
+(display "  ✓ JSON module passed.\n")
+
+;; 2. Testing R7RS Module
+(display "\n--- 2. Testing R7RS Module ---\n")
+(let ((mapped-vec (r7rs.vector-map (lambda (x) (* x 2)) #(1 2 3))))
+  (assert (equal? mapped-vec #(2 4 6)) "R7RS vector-map failed"))
+(display "  ✓ R7RS module passed.\n")
+
+;; 3. Testing Lint Module
+(display "\n--- 3. Testing Lint Module ---\n")
+(let* ((bad-code-string "(define (test-func x) (let ((y 1) (y 2)) (+ x y y)))")
+       (output (call-with-output-string
+                 (lambda (out-port)
+                   (call-with-input-string bad-code-string
+                     (lambda (in-port)
+                       (lint.lint in-port out-port #f)))))))
+  (display "  Captured Lint warning output:\n")
+  (display output)
+  (assert (string-position "declared" output) "Linter failed to flag duplicate variables"))
+(display "  ✓ Lint module passed.\n")
+
+;; 4. Testing Case Module
+(display "\n--- 4. Testing Case Module ---\n")
+(for-each
+  (lambda (binding)
+    (let ((sym-str (symbol->string (car binding))))
+      (if (and (> (string-length sym-str) 5)
+               (string=? (substring sym-str 0 5) "case."))
+          (display (format #f "  DEBUG CASE SYM: ~A\n" sym-str)))))
+  (let->list (curlet)))
+(let ((res (case.case* 1 ((1) 'ok) (else 'bad))))
+  (assert (eq? res 'ok) "Case* macro failed to match value"))
+(display "  ✓ Case module passed.\n")
+
+;; 5. Testing Debug Module
+(display "\n--- 5. Testing Debug Module ---\n")
+(assert (procedure? debug.show-debug-stack) "Debug show-debug-stack should be a procedure")
+(display "  ✓ Debug module passed.\n")
+
+;; 6. Testing Loop Module
+(display "\n--- 6. Testing Loop Module ---\n")
+;; Test iteration via CLTL2 loop macro
+(let ((res (loop.loop for i from 0 to 3 collect i)))
+  (assert (equal? res '(0 1 2 3)) "CLTL2 Loop macro failed to collect list"))
+(display "  ✓ Loop module passed.\n")
+
+;; 7. Testing Mockery Module
+(display "\n--- 7. Testing Mockery Module ---\n")
+(let ((mv (mockery.mock-vector 10 20)))
+  (assert (mockery.mock? mv) "mock-vector result should be a mock object")
+  (assert (= (mv 0) 10) "mock-vector element 0 should be 10"))
+(display "  ✓ Mockery module passed.\n")
+
+;; 8. Testing Profile Module
+(display "\n--- 8. Testing Profile Module ---\n")
+(assert (procedure? profile.show-profile) "Profile show-profile should be a procedure")
+(display "  ✓ Profile module passed.\n")
+
+;; 9. Testing Reactive Module
+(display "\n--- 9. Testing Reactive Module ---\n")
+(let ((b-val 0))
+  (reactive.reactive-let* ((a 1) (b (+ a 1)))
+    (set! a 5)
+    (set! b-val b))
+  (assert (= b-val 6) "Reactive let variable failed to update dynamically"))
+(display "  ✓ Reactive module passed.\n")
+
+;; 10. Testing Stuff Module
+(display "\n--- 10. Testing Stuff Module ---\n")
+(assert (stuff.empty? '()) "Stuff empty? failed for empty list")
+(assert (equal? (stuff.iota 3) '(0 1 2)) "Stuff iota failed")
+(display "  ✓ Stuff module passed.\n")
+
+;; 11. Testing Write Module
+(display "\n--- 11. Testing Write Module ---\n")
+(let ((pp-str (write.pp '(1 2 (3 4)))))
+  (display (format #f "  pp output: ~A\n" pp-str))
+  (assert (string-position "(3 4)" pp-str) "Write pretty-print failed"))
+(display "  ✓ Write module passed.\n")
+
+;; 12. Testing REPL Module
+(display "\n--- 12. Testing REPL Module ---\n")
+(assert (let? repl.*repl*) "repl.*repl* should be a let environment")
+(assert (procedure? (repl.*repl* 'run)) "repl.*repl* 'run should be a procedure")
+(assert (procedure? repl.drop-into-repl) "repl.drop-into-repl should be a procedure")
+(display "  ✓ REPL module passed.\n")
+
+(display "\nAll 12 s7 standard library modules evaluated and passed successfully!\n")

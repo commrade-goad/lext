@@ -6,3 +6,10 @@
   (load (string-append *s7-dir* "libc.scm") (rootlet)))
 
 (load (string-append *s7-dir* "reactive.scm") (curlet))
+
+(for-each
+  (lambda (binding)
+    (let ((sym (car binding)))
+      (unless (memq sym '(a b x test xyzzy))
+        (varlet (rootlet) sym (cdr binding)))))
+  (let->list (curlet)))

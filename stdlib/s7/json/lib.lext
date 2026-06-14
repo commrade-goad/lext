@@ -5,4 +5,20 @@
 (unless (defined? '*libc*)
   (load (string-append *s7-dir* "libc.scm") (rootlet)))
 
+;; Define custom reverse inside the module environment to support reversing lets/environments
+(define (reverse obj)
+  (if (let? obj)
+      (#_reverse (let->list obj))
+      (#_reverse obj)))
+
 (load (string-append *s7-dir* "json.scm") (curlet))
+
+;; Override s7->json to add support for boolean and null serialization
+(define json-s7->json-orig s7->json)
+(define* (s7->json obj (port (current-output-port)))
+  (cond ((eq? obj #t) (display "true" port))
+        ((eq? obj #f) (display "false" port))
+        ((null? obj)  (display "null" port))
+        (else         (json-s7->json-orig obj port))))
+
+

@@ -80,6 +80,7 @@ static s7_pointer builtin_use_lib(s7_scheme *sc, s7_pointer args) {
                         s7_make_symbol(sc, "env-error"),
                         s7_make_string(sc, "LEXT_HOME is not set"));
 
+    s7_int gc_loc = s7_gc_protect(sc, args);
     s7_pointer curr = args;
     while (s7_is_pair(curr)) {
         s7_pointer lib = s7_car(curr);
@@ -87,19 +88,24 @@ static s7_pointer builtin_use_lib(s7_scheme *sc, s7_pointer args) {
 
         if      (s7_is_string(lib))  lib_str = s7_string(lib);
         else if (s7_is_symbol(lib))  lib_str = s7_symbol_name(lib);
-        else return s7_error(sc,
-                             s7_make_symbol(sc, "use-error"),
-                             s7_make_string(sc, "module name must be a string or symbol"));
+        else {
+            s7_gc_unprotect_at(sc, gc_loc);
+            return s7_error(sc,
+                            s7_make_symbol(sc, "use-error"),
+                            s7_make_string(sc, "module name must be a string or symbol"));
+        }
 
         ArrHsv paths = {0};
 
         char *current_dir = NULL;
         if (strlen(lib_str) > 1 && lib_str[0] == ':') {
             #ifdef _WIN32
+            s7_gc_unprotect_at(sc, gc_loc);
             return s7_error(sc, s7_make_symbol(sc, "use-error"), s7_make_string(sc, "The : accessor on the current dir is not implemented in windows."));
             #else
             current_dir = getcwd(NULL, 0);
             if (!current_dir) {
+                s7_gc_unprotect_at(sc, gc_loc);
                 return s7_error(sc, s7_make_symbol(sc, "use-error"), s7_make_string(sc, "Failed to get the current working dir."));
             }
             #endif /* !_WIN32 */
@@ -119,8 +125,6 @@ static s7_pointer builtin_use_lib(s7_scheme *sc, s7_pointer args) {
         strncpy(prefix_buf, prefix_ptr, sizeof(prefix_buf) - 1);
         prefix_buf[sizeof(prefix_buf) - 1] = '\0';
         const char *prefix = prefix_buf;
-
-
 
         for (size_t i = 0; i < paths.sz; i++) {
             HStrView current = paths.dt[i];
@@ -142,7 +146,7 @@ static s7_pointer builtin_use_lib(s7_scheme *sc, s7_pointer args) {
                 }
 
                 s7_pointer new_env = s7_sublet(sc, caller_env, s7_nil(sc));
-                s7_int gc_loc = s7_gc_protect(sc, new_env);
+                s7_int inner_gc_loc = s7_gc_protect(sc, new_env);
 
                 s7_pointer load_res = s7_load_with_environment(sc, (const char *)path.dt, new_env);
                 if (load_res != NULL) {
@@ -151,7 +155,7 @@ static s7_pointer builtin_use_lib(s7_scheme *sc, s7_pointer args) {
                     loaded = true;
                 } else {
                     loaded = false;
-                    s7_gc_unprotect_at(sc, gc_loc);
+                    s7_gc_unprotect_at(sc, inner_gc_loc);
                 }
                 break;
             }
@@ -172,12 +176,14 @@ static s7_pointer builtin_use_lib(s7_scheme *sc, s7_pointer args) {
                                       s7_make_string(sc, (const char *)err_msg.dt));
             hstr_free(&err_msg);
             if (current_dir) free(current_dir);
+            s7_gc_unprotect_at(sc, gc_loc);
             return err;
         }
 
         if (current_dir) free(current_dir);
         curr = s7_cdr(curr);
     }
+    s7_gc_unprotect_at(sc, gc_loc);
     return s7_unspecified(sc);
 }
 

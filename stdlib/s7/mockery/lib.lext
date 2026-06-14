@@ -6,3 +6,11 @@
   (load (string-append *s7-dir* "libc.scm") (rootlet)))
 
 (load (string-append *s7-dir* "mockery.scm") (curlet))
+
+(define mock-vector (*mock-vector* 'mock-vector))
+(define make-mock-vector (*mock-vector* 'make-mock-vector))
+(define mock-vector? (*mock-vector* 'mock-vector?))
+
+(define (mock? obj)
+  (and (let? obj)
+       (symbol? (let-ref obj 'mock-type))))

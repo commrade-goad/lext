@@ -6,3 +6,7 @@
   (load (string-append *s7-dir* "libc.scm") (rootlet)))
 
 (load (string-append *s7-dir* "case.scm") (curlet))
+
+(varlet (rootlet) 'case* ((curlet) 'case*))
+
+
