@@ -1,0 +1,16 @@
+;;; stdlib/s7/profile/lib.lext
+(define *s7-dir* (string-append (or (getenv "LEXT_HOME") ".") "/stdlib/s7/"))
+
+;; Define dummy *libc* environment for load-time safety
+(unless (defined? '*libc*)
+  (define *libc* 
+    (inlet 'getenvs (lambda () '()) 
+           'uname (lambda () '("" "" "" "" "")) 
+           'time (lambda (x) 0)
+           'regex.make (lambda () (lambda () #f))
+           'regcomp (lambda args #f)
+           'regerror (lambda args #f)
+           'regexec (lambda args #f)
+           'regfree (lambda args #f))))
+
+(load (string-append *s7-dir* "profile.scm") (curlet))

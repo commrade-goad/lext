@@ -1,0 +1,12 @@
+;;; stdlib/s7/lib.lext - s7 support module loader
+(use "stdlib/libnob")
+
+(define *s7-dir* (string-append (or (getenv "LEXT_HOME") ".") "/stdlib/s7/"))
+
+(define (load-s7-file name)
+  (load (string-append *s7-dir* name) (curlet)))
+
+;; Load a safe, non-conflicting default subset of Scheme library extensions
+(use "stdlib/s7/stuff" "stdlib/s7/loop" "stdlib/s7/case" "stdlib/s7/json")
+
+(export load-s7-file)
