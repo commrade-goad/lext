@@ -65,10 +65,12 @@ static void export_bindings_to_current(s7_scheme *sc, s7_pointer env, s7_pointer
 
                 free(new_sym_name);
             }
+
         }
         curr_binding = s7_cdr(curr_binding);
     }
 }
+
 
 static s7_pointer builtin_use_lib(s7_scheme *sc, s7_pointer args) {
     s7_pointer caller_env = s7_curlet(sc);
@@ -111,8 +113,14 @@ static s7_pointer builtin_use_lib(s7_scheme *sc, s7_pointer args) {
         HStr path = {0};
         bool loaded = false;
 
+        char prefix_buf[256];
         const char *last_slash = strrchr(lib_str, '/');
-        const char *prefix = last_slash ? last_slash + 1 : lib_str;
+        const char *prefix_ptr = last_slash ? last_slash + 1 : lib_str;
+        strncpy(prefix_buf, prefix_ptr, sizeof(prefix_buf) - 1);
+        prefix_buf[sizeof(prefix_buf) - 1] = '\0';
+        const char *prefix = prefix_buf;
+
+
 
         for (size_t i = 0; i < paths.sz; i++) {
             HStrView current = paths.dt[i];

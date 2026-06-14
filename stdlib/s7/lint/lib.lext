@@ -1,0 +1,11 @@
+;;; stdlib/s7/lint/lib.lext
+(define *s7-dir* (string-append (or (getenv "LEXT_HOME") ".") "/stdlib/s7/"))
+
+(unless (defined? '*libc*)
+  (load (string-append *s7-dir* "libc.scm") (rootlet)))
+
+;; Load write.scm to define pp and pretty-print, avoiding unbound symbol errors in lint.scm
+(unless (defined? 'pp)
+  (load (string-append *s7-dir* "write.scm") (rootlet)))
+
+(load (string-append *s7-dir* "lint.scm") (curlet))
