@@ -25,8 +25,10 @@ This document provides a detailed overview of the core runtime engine, the C-sid
     - [Scoped Sandbox Allocators (`with-heap-alloc`, `with-alloc`, etc.)](#scoped-sandbox-allocators-with-heap-alloc-with-alloc-etc)
     - [String & Array Marshalling Helpers](#string--array-marshalling-helpers)
 7. [The Task Runner Library: `libnob` Reference](#7-the-task-runner-library-libnob-reference)
-8. [Template Engine & Raw String Literals](#8-template-engine--raw-string-literals)
-9. [Emacs Major Mode Integration](#9-emacs-major-mode-integration)
+8. [s7 Scheme Compatibility & Linter Modules](#8-s7-scheme-compatibility--linter-modules)
+9. [Template Engine & Raw String Literals](#9-template-engine--raw-string-literals)
+10. [Emacs Major Mode Integration](#10-emacs-major-mode-integration)
+
 
 ---
 
@@ -555,7 +557,39 @@ The `libnob` library contains utility bindings for task running, process executi
 
 ---
 
-## 8. Template Engine & Raw String Literals
+## 8. s7 Scheme Compatibility & Linter Modules
+
+Lext integrates standard s7 Scheme library extensions and wraps them inside the native module system under the `stdlib/s7/` search path.
+
+### Core s7 Libraries
+* **`libc.scm`**: An FFI-based POSIX compatibility layer. Registers the global `*libc*` environment.
+* **`stuff.scm`**, **`loop.scm`**, **`case.scm`**, **`json.scm`**, **`write.scm`**: Standard s7 utilities, loaded and prefix-wrapped under their respective module paths (e.g. `(use "stdlib/s7/json")` maps functions under `json.`).
+
+### The Linter Module (`stdlib/s7/lint`)
+The native s7 Scheme code linter (`lint.scm`) checks Scheme and Lext code for common infelicities, style suggestions, unused parameters, and shadowed variables.
+
+#### Loading the Linter:
+```scheme
+(use "stdlib/s7/lint")
+```
+
+#### Linting a File:
+```scheme
+;; Lints the specified file and outputs reports
+(lint.lint "my_script.lext")
+```
+
+#### Prefix-free Namespace Usage:
+```scheme
+(use "stdlib/s7/lint")
+(open-namespace "lint")
+
+(lint "my_script.lext")
+```
+
+---
+
+## 9. Template Engine & Raw String Literals
 
 When run in templating mode (without the `-s` script flag), Lext parses files, looking for `@@(...)` expressions.
 
@@ -572,7 +606,7 @@ When run in templating mode (without the `-s` script flag), Lext parses files, l
 
 ---
 
-## 9. Emacs Major Mode Integration
+## 10. Emacs Major Mode Integration
 
 The major mode **`lext-mode`** (located in `lext-mode.el`) provides a complete development environment for Emacs:
 
@@ -588,3 +622,4 @@ The major mode **`lext-mode`** (located in `lext-mode.el`) provides a complete d
    ```elisp
    (add-to-list 'auto-mode-alist '("\\.lext\\'" . lext-mode))
    ```
+

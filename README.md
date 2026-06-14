@@ -204,8 +204,21 @@ These macros make traversing structured C memory structures incredibly concise:
 
 ---
 
-### 3. Built-in Hash Table Support
+### 3. `s7` Compatibility & Linter Modules (`stdlib/s7`)
+Provides standard s7 Scheme extensions and developer tools, fully compatible with the native FFI runtime:
+* **`stdlib/s7/r7rs`**: Scheme R7RS standard compatibility.
+* **`stdlib/s7/lint`**: Native s7 Scheme code linter.
+  ```scheme
+  (use "stdlib/s7/lint")
+  (lint.lint "my_script.lext")
+  ```
+* **Other Modules**: `json`, `loop`, `case`, `mockery`, `profile`, `reactive`, `write`, `stuff` can be imported in the same manner.
+
+---
+
+### 4. Built-in Hash Table Support
 The underlying `s7` engine features native, high-performance hash tables. You do not need external libraries for hash map operations. Built-in procedures include:
+
 * `(make-hash-table [size])` - Creates a new hash table.
 * `(hash-table-set! table key value)` - Associates key with value in table.
 * `(hash-table-ref table key)` - Retrieves value associated with key.
