@@ -40,7 +40,7 @@ make
 ```
 This produces the `./lext` binary.
 
-After that use that `./lext` binary to build the full featured compiler by using this command:
+After that use that `./lext` binary to build the full featured intepreter by using this command:
 ```bash
 LEXT_HOME=. ./lext -s build.lext
 ```
