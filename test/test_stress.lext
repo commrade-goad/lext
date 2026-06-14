@@ -1068,6 +1068,16 @@
     (c.free p1)
     (c.free p2))
 
+  ;; 3e: da-pop with 'float and 'double — previously unsupported by hardcoded lists
+  (let ((da (c.calloc 1 (c.size 'Nob_Dynamic_Array))))
+    (libnob.da-set! da '((items . ()) (count . 0) (capacity . 0)))
+    (libnob.da-append da 3.14 float)
+    (libnob.da-append da 2.718 double)
+    (check "da-pop double: value" (libnob.da-pop da 'double) 2.718)
+    (check "da-pop float: value"  (< (abs (- (libnob.da-pop da 'float) 3.14)) 1e-5) #t)
+    (libnob.da-free da)
+    (c.free da))
+
   ;; ── Bug bonus: write-entire-file + read-entire-file round-trip ────────
   ;; Covers the full pipeline including multi-line content
   (let* ((path "/tmp/lext-stress-rt.txt")
