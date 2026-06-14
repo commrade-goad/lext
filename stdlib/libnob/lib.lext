@@ -268,28 +268,27 @@
 (define (copy-directory-recursively src dst)
   (not (= (internal-nob-copy-dir-recursively src dst) 0)))
 
-;; read-entire-file: read file into string using string builder FFI
+;; read-entire-file: read file into Scheme string using nob's String_Builder.
+;; Uses lext-sv->string (count + raw ptr) to bypass the ffi-deref array size
+;; limit — works on files of any size since it copies directly off the heap.
 (define (read-entire-file path)
   (let ((sb (c.calloc 1 (c.size 'Nob_String_Builder))))
     (ffi-set! sb 'Nob_String_Builder '((items . ()) (count . 0) (capacity . 0)))
     (let ((success (not (= (internal-nob-read-entire-file path sb) 0))))
       (if success
-          (let* ((sb-struct (ffi-deref sb 'Nob_String_Builder))
-                 (items-ptr (cdr (assoc 'items sb-struct)))
-                 (count (cdr (assoc 'count sb-struct))))
+          (let* ((sb-struct  (ffi-deref sb 'Nob_String_Builder))
+                 (items-ptr  (cdr (assoc 'items sb-struct)))
+                 (count      (cdr (assoc 'count sb-struct))))
             (if (> count 0)
-                (let* ((bytes (ffi-deref items-ptr (list 'array 'char count)))
-                       (chars (map integer->char bytes))
-                       (str (list->string chars)))
-                  (if (not (null? items-ptr)) (c.free items-ptr))
+                ;; lext-sv->string copies (count) bytes from the raw C ptr directly
+                ;; into a Scheme string via s7_make_string_with_length — no per-byte
+                ;; Scheme list allocation, no ffi-deref array size cap.
+                (let ((str (lext-sv->string count items-ptr)))
+                  (c.free items-ptr)
                   (c.free sb)
                   str)
-                (begin
-                  (c.free sb)
-                  "")))
-          (begin
-            (c.free sb)
-            #f)))))
+                (begin (c.free sb) "")))
+          (begin (c.free sb) #f)))))
 
 ;; write-entire-file: write string data directly to file
 (define (write-entire-file path data)
@@ -526,42 +525,32 @@
          (,(symbol->value 'da-update! *libnob-env*) ,da-var ,items (+ ,count 1) (cdr (assoc 'capacity ,da-struct)))))))
 
 (define (da-pop da type)
-  (let* ((da-struct (da-get da))
-         (items (cdr (assoc 'items da-struct)))
-         (count (cdr (assoc 'count da-struct)))
-         (capacity (cdr (assoc 'capacity da-struct)) )
-         (item-size (cond
-                      ((eq? type 'pointer) 8)
-                      ((eq? type 'ulong) 8)
-                      ((eq? type 'int) 4)
-                      ((eq? type 'uchar) 1)
-                      (else (error "Unsupported type")))))
+  (let* ((da-struct  (da-get da))
+         (items      (cdr (assoc 'items    da-struct)))
+         (count      (cdr (assoc 'count    da-struct)))
+         (capacity   (cdr (assoc 'capacity da-struct)))
+         (item-size  (c.size type)))           ;; ABI-correct via libffi
     (if (> count 0)
         (let* ((new-count (- count 1))
-               (item-ptr (c.internal-c-ptr+ items (* new-count item-size)))
-               (val (ffi-deref item-ptr type)))
+               (item-ptr  (c.internal-c-ptr+ items (* new-count item-size)))
+               (val       (ffi-deref item-ptr type)))
           (da-update! da items new-count capacity)
           val)
         (error "da-pop: empty array"))))
 
 (define (da-first da type)
   (let* ((da-struct (da-get da))
-         (items (cdr (assoc 'items da-struct)))
-         (count (cdr (assoc 'count da-struct))))
+         (items     (cdr (assoc 'items da-struct)))
+         (count     (cdr (assoc 'count da-struct))))
     (if (> count 0)
         (ffi-deref items type)
         (error "da-first: empty array"))))
 
 (define (da-last da type)
-  (let* ((da-struct (da-get da))
-         (items (cdr (assoc 'items da-struct)))
-         (count (cdr (assoc 'count da-struct)))
-         (item-size (cond
-                      ((eq? type 'pointer) 8)
-                      ((eq? type 'ulong) 8)
-                      ((eq? type 'int) 4)
-                      ((eq? type 'uchar) 1)
-                      (else (error "Unsupported type")))))
+  (let* ((da-struct  (da-get da))
+         (items      (cdr (assoc 'items    da-struct)))
+         (count      (cdr (assoc 'count    da-struct)))
+         (item-size  (c.size type)))           ;; ABI-correct via libffi
     (if (> count 0)
         (let* ((item-ptr (c.internal-c-ptr+ items (* (- count 1) item-size))))
           (ffi-deref item-ptr type))
@@ -603,17 +592,15 @@
   (let ((sb (c.calloc 1 (c.size 'Nob_String_Builder))))
     (ffi-set! sb 'Nob_String_Builder '((items . ()) (count . 0) (capacity . 0)))
     (internal-nob-cmd-render (internal-nob-struct-val cmd 'Nob_Cmd) sb)
-    (let* ((sb-struct (ffi-deref sb 'Nob_String_Builder))
-           (items-ptr (cdr (assoc 'items sb-struct)))
-           (count (cdr (assoc 'count sb-struct)))
-           (str (if (> count 0)
-                    (let* ((bytes (ffi-deref items-ptr (list 'array 'char count)))
-                           (chars (map integer->char bytes)))
-                      (list->string chars))
-                    "")))
+    (let* ((sb-struct  (ffi-deref sb 'Nob_String_Builder))
+           (items-ptr  (cdr (assoc 'items sb-struct)))
+           (count      (cdr (assoc 'count sb-struct)))
+           ;; Use lext-sv->string — same fix as read-entire-file, no size cap
+           (str        (if (> count 0) (lext-sv->string count items-ptr) "")))
       (if (and (not (null? items-ptr)) (not (eq? items-ptr 0))) (c.free items-ptr))
       (c.free sb)
       str)))
+
 
 (define (cmd-run-async cmd)
   (internal-nob-cmd-run-async (internal-nob-struct-val cmd 'Nob_Cmd)))

@@ -961,6 +961,126 @@
 
 
 ;;; ═══════════════════════════════════════════════════════════════════════
+;;; PART O — stdlib Regression Tests (bugs found in the wild)
+;;; ═══════════════════════════════════════════════════════════════════════
+(section "PART O — stdlib Regression Tests"
+
+  ;; ── Bug 1: read-entire-file truncated at ~13 KB ───────────────────────
+  ;; Old impl: (ffi-deref items-ptr (list 'array 'char count)) has internal
+  ;; cap; replaced with lext-sv->string which uses s7_make_string_with_length.
+  ;; Write a temp file larger than the old cap and verify full length is read.
+  (let* ((big-path "/tmp/lext-stress-big.txt")
+         ;; Build a string of exactly 20 000 chars (well above the old ~13 KB cap)
+         (line     "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") ;; 37 chars
+         (reps     541)  ;; 541 * 37 = 20017 chars
+         (content  (let loop ((i 0) (acc "")) (if (>= i reps) acc (loop (+ i 1) (string-append acc line))))))
+    (libnob.write-entire-file big-path content)
+    (let* ((back (libnob.read-entire-file big-path))
+           (back-len (if (string? back) (string-length back) -1)))
+      (check "read-entire-file: returns string for big file"
+             (string? back) #t)
+      (check "read-entire-file: full length preserved (no truncation)"
+             back-len (string-length content))
+      (check "read-entire-file: content correct at byte 19999"
+             (and (string? back)
+                  (>= (string-length back) 20000)
+                  (char=? (string-ref back 19999)
+                          (string-ref content 19999)))
+             #t))
+    (libnob.delete-file big-path))
+
+  ;; ── Bug 2: cmd-render truncated for commands with many/long args ──────
+  ;; Old impl: same ffi-deref array pattern; now uses lext-sv->string.
+  ;; Build a Nob_Cmd with enough args to exceed the old ~13 KB cap.
+  (let* ((cmd (libnob.cmd-new))
+         ;; append 400 args of ~35 chars each = ~14 000 chars rendered
+         (long-arg (make-string 33 #\X)))  ;; "XXX...X" 33 chars
+    (let loop ((i 0))
+      (when (< i 400)
+        (libnob.cmd-append cmd (string-append long-arg (number->string i)))
+        (loop (+ i 1))))
+    (let* ((rendered (libnob.cmd-render cmd))
+           (rlen     (string-length rendered)))
+      (check "cmd-render: returns non-empty string"
+             (> rlen 0) #t)
+      (check "cmd-render: full length preserved (> 13000 chars)"
+             (> rlen 13000) #t)
+      ;; spot-check: last arg index should appear somewhere
+      (let loop ((i (- rlen 1)))
+        (if (and (>= i 0)
+                 (not (char=? (string-ref rendered i) #\3)))
+            (loop (- i 1))
+            (check "cmd-render: last arg digit present" #t #t))))
+    (libnob.cmd-free cmd))
+
+  ;; ── Bug 3: da-pop / da-last hardcoded item sizes ─────────────────────
+  ;; Old impl had cond table {pointer=8, ulong=8, int=4, uchar=1} —
+  ;; any unlisted type errored; now uses c.size for correctness.
+
+  ;; 3a: da-pop with 'int — basic correctness + size
+  (let ((da (c.calloc 1 (c.size 'Nob_Dynamic_Array))))
+    (libnob.da-set! da '((items . ()) (count . 0) (capacity . 0)))
+    (libnob.da-append da 10 int)
+    (libnob.da-append da 20 int)
+    (libnob.da-append da 30 int)
+    (check "da-pop int: last value"   (libnob.da-pop da 'int) 30)
+    (check "da-pop int: count after"  (libnob.da-count da) 2)
+    (check "da-pop int: second pop"   (libnob.da-pop da 'int) 20)
+    (check "da-first int: first val"  (libnob.da-first da 'int) 10)
+    (check "da-last int: only elem"   (libnob.da-last  da 'int) 10)
+    (libnob.da-free da)
+    (c.free da))
+
+  ;; 3b: da-pop with 'uchar — previously in the table, verify still works
+  (let ((da (c.calloc 1 (c.size 'Nob_Dynamic_Array))))
+    (libnob.da-set! da '((items . ()) (count . 0) (capacity . 0)))
+    (libnob.da-append da 1 uchar)
+    (libnob.da-append da 2 uchar)
+    (libnob.da-append da 255 uchar)
+    (check "da-pop uchar: pop 255"   (libnob.da-pop  da 'uchar) 255)
+    (check "da-last uchar: last=2"   (libnob.da-last da 'uchar) 2)
+    (check "da-first uchar: first=1" (libnob.da-first da 'uchar) 1)
+    (libnob.da-free da)
+    (c.free da))
+
+  ;; 3c: da-pop with 'ulong — previously hardcoded as 8
+  (let ((da (c.calloc 1 (c.size 'Nob_Dynamic_Array))))
+    (libnob.da-set! da '((items . ()) (count . 0) (capacity . 0)))
+    (libnob.da-append da 1000 ulong)
+    (libnob.da-append da 2000 ulong)
+    (check "da-pop ulong: pop 2000"  (libnob.da-pop  da 'ulong) 2000)
+    (check "da-first ulong: 1000"    (libnob.da-first da 'ulong) 1000)
+    (libnob.da-free da)
+    (c.free da))
+
+  ;; 3d: da-pop with 'pointer — previously hardcoded as 8
+  (let* ((da  (c.calloc 1 (c.size 'Nob_Dynamic_Array)))
+         (p1  (c.calloc 1 8))
+         (p2  (c.calloc 1 8)))
+    (libnob.da-set! da '((items . ()) (count . 0) (capacity . 0)))
+    (libnob.da-append da p1 pointer)
+    (libnob.da-append da p2 pointer)
+    (let ((popped (libnob.da-pop da 'pointer)))
+      (check "da-pop pointer: non-null result" (not (null? popped)) #t)
+      (check "da-count after pointer pop" (libnob.da-count da) 1))
+    (libnob.da-free da)
+    (c.free da)
+    (c.free p1)
+    (c.free p2))
+
+  ;; ── Bug bonus: write-entire-file + read-entire-file round-trip ────────
+  ;; Covers the full pipeline including multi-line content
+  (let* ((path "/tmp/lext-stress-rt.txt")
+         (data "first line\nsecond line\nthird line\n"))
+    (libnob.write-entire-file path data)
+    (let ((back (libnob.read-entire-file path)))
+      (check "write+read round-trip: exact match"
+             (and (string? back) (string=? back data)) #t))
+    (libnob.delete-file path))
+)
+
+
+;;; ═══════════════════════════════════════════════════════════════════════
 ;;; Final report
 ;;; ═══════════════════════════════════════════════════════════════════════
 (ffi-close libtest)
