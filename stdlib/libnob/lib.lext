@@ -356,7 +356,7 @@
             (let loop ((i 0))
               (if (< i count)
                   (begin
-                    (let* ((str-ptr (c.internal-c-ptr+ items-ptr (* i (c.size 'pointer))))
+                    (let* ((str-ptr (c.c-ptr+ items-ptr (* i (c.size 'pointer))))
                            (str (ffi-deref str-ptr 'string)))
                       (set! result (cons str result))
                       (loop (+ i 1))))))
@@ -515,7 +515,7 @@
        (,(symbol->value 'da-reserve *libnob-env*) ,da-var (+ ,count 1) ,item-size)
        (let* ((,da-struct (,(symbol->value 'da-get *libnob-env*) ,da-var))
               (,items (cdr (assoc 'items ,da-struct)))
-              (,item-ptr (,(symbol->value 'c.internal-c-ptr+ *libnob-env*) ,items (* ,count ,item-size))))
+              (,item-ptr (,(symbol->value 'c.c-ptr+ *libnob-env*) ,items (* ,count ,item-size))))
          (ffi-set! ,item-ptr ',type ,item)
          (,(symbol->value 'da-update! *libnob-env*) ,da-var ,items (+ ,count 1) (cdr (assoc 'capacity ,da-struct)))))))
 
@@ -527,7 +527,7 @@
          (item-size  (c.size type)))           ;; ABI-correct via libffi
     (if (> count 0)
         (let* ((new-count (- count 1))
-               (item-ptr  (c.internal-c-ptr+ items (* new-count item-size)))
+               (item-ptr  (c.c-ptr+ items (* new-count item-size)))
                (val       (ffi-deref item-ptr type)))
           (da-update! da items new-count capacity)
           val)
@@ -547,7 +547,7 @@
          (count      (cdr (assoc 'count    da-struct)))
          (item-size  (c.size type)))           ;; ABI-correct via libffi
     (if (> count 0)
-        (let* ((item-ptr (c.internal-c-ptr+ items (* (- count 1) item-size))))
+        (let* ((item-ptr (c.c-ptr+ items (* (- count 1) item-size))))
           (ffi-deref item-ptr type))
         (error "da-last: empty array"))))
 

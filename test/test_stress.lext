@@ -66,7 +66,7 @@
   (let ((p (c.calloc 32 4)))
     (let loop ((i 0) (all-zero #t))
       (if (< i 128)
-          (let ((b (ffi-deref (c.internal-c-ptr+ p i) 'uchar)))
+          (let ((b (ffi-deref (c.c-ptr+ p i) 'uchar)))
             (loop (+ i 1) (and all-zero (= b 0))))
           (begin
             (check-true "calloc zero-init 128 bytes" all-zero)
