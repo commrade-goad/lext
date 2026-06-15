@@ -98,7 +98,7 @@ int main(int argc, char **argv) {
             return EXIT_SUCCESS;
         } else if (strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "--no-template") == 0) {
             no_template = true;
-        } else if (argv[i][0] == '-') {
+        } else if (argv[i][0] == '-' && argv[i][1] != '\0') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             fprintf(stderr, "Usage: %s [options] <input_file> [<output_file>]\n", argv[0]);
             return EXIT_FAILURE;
@@ -132,13 +132,21 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
-    FILE *in = fopen(input_file, "r");
-    if (!in) {
-        fprintf(stderr, "ERR: Could not open input file: %s\n", input_file);
-        return EXIT_FAILURE;
+    FILE *in = NULL;
+    bool is_stdin = (strcmp(input_file, "-") == 0);
+    if (is_stdin) {
+        in = stdin;
+    } else {
+        in = fopen(input_file, "r");
+        if (!in) {
+            fprintf(stderr, "ERR: Could not open input file: %s\n", input_file);
+            return EXIT_FAILURE;
+        }
     }
     if (no_template) {
-        fclose(in);
+        if (!is_stdin) {
+            fclose(in);
+        }
         in = NULL;
     }
 
@@ -146,7 +154,7 @@ int main(int argc, char **argv) {
     s7_scheme *s7 = s7_init();
     if (!s7) {
         fprintf(stderr, "ERR: Failed to initialize s7 Scheme engine.\n");
-        if (in)  fclose(in);
+        if (in && !is_stdin) fclose(in);
         return EXIT_FAILURE;
     }
 
@@ -207,7 +215,19 @@ int main(int argc, char **argv) {
 
     /* ---- Script-only mode ---- */
     if (no_template) {
-        s7_load(s7, input_file);
+        if (is_stdin) {
+            HStr stdin_buf;
+            hstr_init(&stdin_buf);
+            int c;
+            while ((c = fgetc(stdin)) != EOF) {
+                hstr_push(&stdin_buf, c);
+            }
+            hstr_push(&stdin_buf, '\0');
+            s7_load_c_string(s7, (const char *)stdin_buf.dt, stdin_buf.sz - 1);
+            hstr_free(&stdin_buf);
+        } else {
+            s7_load(s7, input_file);
+        }
         s7_pointer has_err = s7_name_to_value(s7, "*has-error*");
         if (s7_is_boolean(has_err) && s7_boolean(s7, has_err)) {
             return EXIT_FAILURE;
@@ -305,7 +325,7 @@ int main(int argc, char **argv) {
                             script_name, last.line, last.col, depth);
                     hstr_free(&lisp_buf);
                     helpa_da_free(locs);
-                    fclose(in);
+                    if (!is_stdin) fclose(in);
                     hstr_free(&out_buf);
                     return EXIT_FAILURE;
                 }
@@ -315,7 +335,7 @@ int main(int argc, char **argv) {
                 if (s7_is_boolean(has_err) && s7_boolean(s7, has_err)) {
                     helpa_da_free(locs);
                     hstr_free(&lisp_buf);
-                    fclose(in);
+                    if (!is_stdin) fclose(in);
                     hstr_free(&out_buf);
                     return EXIT_FAILURE;
                 }
@@ -337,7 +357,7 @@ int main(int argc, char **argv) {
     if      (state == STATE_AT1) hstr_push(&out_buf, '@');
     else if (state == STATE_AT2) hstr_append_cstr(&out_buf, "@@");
 
-    fclose(in);
+    if (!is_stdin) fclose(in);
 
     /* Write buffer to output file only at the very end upon success */
     FILE *out = fopen(output_file, "w");
