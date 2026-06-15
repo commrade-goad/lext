@@ -104,6 +104,11 @@ int main(int argc, char **argv) {
             return EXIT_FAILURE;
         } else {
             if      (!input_file)  { input_file = argv[i]; script_name = argv[i]; }
+            else if (no_template && input_file) {
+                scheme_argc = argc - i;
+                if (scheme_argc > 0) scheme_argv = &argv[i];
+                break;
+            }
             else if (!output_file)   output_file = argv[i];
             else {
                 fprintf(stderr, "Too many arguments.\n");
@@ -124,11 +129,6 @@ int main(int argc, char **argv) {
     if (!no_template && !output_file) {
         fprintf(stderr, "Error: Output file is required when not in --no-template mode.\n");
         fprintf(stderr, "Usage: %s [options] <input.texm> <output.tex>\n", argv[0]);
-        return EXIT_FAILURE;
-    }
-    if (no_template && output_file) {
-        fprintf(stderr, "Error: Output file is not allowed in --no-template mode.\n");
-        fprintf(stderr, "Usage: %s [options] <input_file>\n", argv[0]);
         return EXIT_FAILURE;
     }
 

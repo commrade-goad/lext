@@ -280,7 +280,6 @@
     (libnob.delete-file "src/lext_constants.c")
     (exit)))
  ((member "install" argv string=?)
-    (display "install...\n")
     (let ((install-path (getenv "PREFIX")))
       (if (not install-path)
           (begin
@@ -288,9 +287,12 @@
             (exit))
           (else (begin
                   (builder)
+                  (display "Starting the install process...\n")
 
                   (libnob.mkdir-if-not-exists install-path)
                   (libnob.mkdir-if-not-exists (string-append install-path "/bin/"))
+                  (if (libnob.file-exists (string-append install-path "/bin/lext"))
+                      (libnob.rename (string-append install-path "/bin/lext") (string-append install-path "/bin/lext.old")))
                   (libnob.copy-file (append-builddir "lext") (string-append install-path "/bin/lext"))
 
                   (libnob.mkdir-if-not-exists (string-append install-path "/lib/"))
@@ -304,4 +306,3 @@
  )
 
 (builder)
-
