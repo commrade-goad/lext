@@ -1,0 +1,131 @@
+(use "stdlib/c" "stdlib/libnob")
+(open-namespace "c")
+
+(define-macro (assert condition message)
+  `(if (not ,condition)
+       (error (format #f "Assertion Failed: ~A (expected: ~A)" ,message ',condition))))
+
+(display "=========================================================\n")
+(display "      Lext UTF-8 & FFI Support - Verification Suite\n")
+(display "=========================================================\n\n")
+
+;; 1. Test encoding / decoding of various Unicode codepoints
+(display "--- 1. Testing UTF-8 C Encoders & Decoders ---\n")
+(assert (string=? (lext-utf8-encode 65) "A") "Encode ASCII 'A' failed")
+(assert (string=? (lext-utf8-encode #x3bb) "λ") "Encode Greek 'λ' failed")
+(assert (string=? (lext-utf8-encode #x4e2d) "中") "Encode Chinese '中' failed")
+(assert (string=? (lext-utf8-encode #x1f60a) "😊") "Encode Emoji '😊' failed")
+
+(assert (= (lext-utf8-decode "A") 65) "Decode ASCII 'A' failed")
+(assert (= (lext-utf8-decode "λ") #x3bb) "Decode Greek 'λ' failed")
+(assert (= (lext-utf8-decode "中") #x4e2d) "Decode Chinese '中' failed")
+(assert (= (lext-utf8-decode "😊") #x1f60a) "Decode Emoji '😊' failed")
+(assert (= (lext-utf8-decode "😊λ" 4) #x3bb) "Decode with offset failed")
+(display "  ✓ Native FFI encoder/decoder passed.\n")
+
+;; 2. Test FFI struct utf8_char
+(display "\n--- 2. Testing FFI utf8_char Struct ---\n")
+(let ((uc (string->utf8-char "中")))
+  (assert (utf8-char? uc) "utf8-char? type check failed")
+  (assert (= (@ uc.codepoint) #x4e2d) "Struct codepoint value mismatch")
+  (assert (string=? (utf8-char->string uc) "中") "Struct string conversion mismatch")
+  (c-free uc))
+(display "  ✓ utf8_char struct conversion passed.\n")
+
+;; 3. Test utf8-len on strings and FFI pointers
+(display "\n--- 3. Testing utf8-len ---\n")
+(assert (= (utf8-len "") 0) "Empty string length failed")
+(assert (= (utf8-len "Hello") 5) "ASCII length failed")
+(assert (= (utf8-len "λ中😊") 3) "Multi-byte length failed")
+
+(with-c-string (p "Hello λ中😊")
+  (assert (= (utf8-len p) 9) "FFI pointer utf8-len failed"))
+(display "  ✓ utf8-len passed.\n")
+
+;; 4. Test utf8-ref
+(display "\n--- 4. Testing utf8-ref ---\n")
+(let ((str "λ中😊"))
+  (assert (string=? (utf8-ref str 0) "λ") "utf8-ref index 0 failed")
+  (assert (string=? (utf8-ref str 1) "中") "utf8-ref index 1 failed")
+  (assert (string=? (utf8-ref str 2) "😊") "utf8-ref index 2 failed"))
+(display "  ✓ utf8-ref passed.\n")
+
+;; 5. Test utf8-substring and utf8-slice
+(display "\n--- 5. Testing utf8-substring & utf8-slice ---\n")
+(let ((str "Hello λ中😊 World"))
+  (assert (string=? (utf8-substring str 6 9) "λ中😊") "utf8-substring failed")
+  (assert (string=? (utf8-slice str 6 9) "λ中😊") "utf8-slice positive failed")
+  (assert (string=? (utf8-slice str -6 -1) " Worl") "utf8-slice negative failed")
+  (assert (string=? (utf8-slice str 6) "λ中😊 World") "utf8-slice default end failed"))
+(display "  ✓ utf8-substring and utf8-slice passed.\n")
+
+;; 6. Test utf8-index, utf8-reverse, utf8-split, and utf8-join
+(display "\n--- 6. Testing utf8-index, reverse, split & join ---\n")
+(let ((str "Hello λ中😊 World"))
+  (assert (= (utf8-index str "λ中") 6) "utf8-index failed")
+  (assert (not (utf8-index str "notfound")) "utf8-index notfound failed"))
+
+(assert (string=? (utf8-reverse "λ中😊") "😊中λ") "utf8-reverse failed")
+
+(let ((parts (utf8-split "apple,orange,banana" ",")))
+  (assert (equal? parts '("apple" "orange" "banana")) "utf8-split failed")
+  (assert (string=? (utf8-join parts "-") "apple-orange-banana") "utf8-join failed"))
+
+(let ((chars (utf8-split "λ中😊" "")))
+  (assert (equal? chars '("λ" "中" "😊")) "utf8-split empty delimiter failed"))
+(display "  ✓ String advanced helpers passed.\n")
+
+;; 6.5. Testing new Unicode utilities
+(display "\n--- 6.5. Testing new Unicode utilities ---\n")
+(let ((str "λ中😊"))
+  (assert (eqv? (utf8-ref-codepoint str 0) #x3bb) "utf8-ref-codepoint 0 failed")
+  (assert (eqv? (utf8-ref-codepoint str 1) #x4e2d) "utf8-ref-codepoint 1 failed")
+  (assert (eqv? (utf8-ref-codepoint str 2) #x1f60a) "utf8-ref-codepoint 2 failed"))
+
+(assert (string=? (utf8-string 65 #x3bb #x4e2d) "Aλ中") "utf8-string failed")
+(assert (eqv? (utf8-codepoint-size 65) 1) "utf8-codepoint-size ASCII failed")
+(assert (eqv? (utf8-codepoint-size #x3bb) 2) "utf8-codepoint-size 2-byte failed")
+(assert (eqv? (utf8-codepoint-size #x4e2d) 3) "utf8-codepoint-size 3-byte failed")
+(assert (eqv? (utf8-codepoint-size #x1f60a) 4) "utf8-codepoint-size 4-byte failed")
+
+(let ((uc1 (string->utf8-char "中"))
+      (uc2 (string->utf8-char "middle"))
+      (uc3 (string->utf8-char "λ")))
+  (assert (utf8-char? uc1) "utf8-char? type check failed")
+  (assert (utf8-char=? uc1 "中") "utf8-char=? struct-string failed")
+  (assert (utf8-char=? uc1 #x4e2d) "utf8-char=? struct-int failed")
+  (assert (not (utf8-char=? uc1 uc3)) "utf8-char=? different structs failed")
+  (c-free uc1)
+  (c-free uc2)
+  (c-free uc3))
+
+(assert (equal? (utf8->list "λ中😊") '(#x3bb #x4e2d #x1f60a)) "utf8->list failed")
+(assert (string=? (list->utf8 '(#x3bb #x4e2d #x1f60a)) "λ中😊") "list->utf8 failed")
+
+(assert (string=? (utf8-map (lambda (char-str) (string-append char-str "!")) "λ中😊") "λ!中!😊!") "utf8-map failed")
+
+(let ((accum '()))
+  (utf8-for-each (lambda (char-str) (set! accum (cons char-str accum))) "λ中😊")
+  (assert (equal? (reverse accum) '("λ" "中" "😊")) "utf8-for-each failed"))
+(display "  ✓ New Unicode utilities passed.\n")
+
+;; 7. Test column tracking in main.c error messages
+(display "\n--- 7. Testing Column Tracking in C Core Error Reports ---\n")
+(let* ((temp-file "build/temp_err.texm")
+       (out-file "build/temp_err.tex")
+       (err-log "build/temp_err.log"))
+  (call-with-output-file temp-file
+    (lambda (p)
+      (display "Hello λ中 @@(unmatched" p)))
+  (libnob.cmd-run `("./build/lext" ,temp-file ,out-file) :stderr-path err-log)
+  (let ((log-content (libnob.read-entire-file err-log)))
+    (display "  Captured compiler stderr:\n")
+    (display log-content)
+    ;; Check that line 1, column 12 is correctly reported
+    (assert (string-position "1:12" log-content) "Column tracking failed to report character column 12 (instead of byte column 15)"))
+  (libnob.delete-file temp-file)
+  (libnob.delete-file out-file)
+  (libnob.delete-file err-log))
+(display "  ✓ C core UTF-8 column tracking passed.\n")
+
+(display "\nAll UTF-8 support tests evaluated and passed successfully!\n")

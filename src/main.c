@@ -246,7 +246,12 @@ int main(int argc, char **argv) {
     hstr_init(&out_buf);
 
     while ((c = fgetc(in)) != EOF) {
-        if (c == '\n') { loc.line++; loc.col = 0; } else loc.col++;
+        if (c == '\n') {
+            loc.line++;
+            loc.col = 0;
+        } else if ((c & 0xC0) != 0x80) {
+            loc.col++;
+        }
 
         switch (state) {
         case STATE_TEXT:
@@ -276,7 +281,12 @@ int main(int argc, char **argv) {
                 bool in_raw_string  = false;
 
                 while (depth > 0 && (lc = fgetc(in)) != EOF) {
-                    if (lc == '\n') { loc.line++; loc.col = 0; } else loc.col++;
+                    if (lc == '\n') {
+                        loc.line++;
+                        loc.col = 0;
+                    } else if ((lc & 0xC0) != 0x80) {
+                        loc.col++;
+                    }
 
                     if (in_raw_string) {
                         if (lc == '\\') {

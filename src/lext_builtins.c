@@ -144,6 +144,75 @@ __attribute__((weak)) s7_pointer lext_make_libc_constants(s7_scheme *sc, s7_poin
 }
 
 /* ------------------------------------------------------------------ */
+/* UTF-8 Support                                                      */
+/* ------------------------------------------------------------------ */
+
+static s7_pointer builtin_lext_utf8_encode(s7_scheme *sc, s7_pointer args) {
+    s7_pointer cp_arg = s7_car(args);
+    if (!s7_is_integer(cp_arg))
+        return s7_wrong_type_arg_error(sc, "lext-utf8-encode", 1, cp_arg, "integer");
+
+    s7_int cp = s7_integer(cp_arg);
+    char buf[5] = {0};
+    if (cp <= 0x7F) {
+        buf[0] = (char)cp;
+    } else if (cp <= 0x7FF) {
+        buf[0] = (char)(0xC0 | ((cp >> 6) & 0x1F));
+        buf[1] = (char)(0x80 | (cp & 0x3F));
+    } else if (cp <= 0xFFFF) {
+        buf[0] = (char)(0xE0 | ((cp >> 12) & 0x0F));
+        buf[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        buf[2] = (char)(0x80 | (cp & 0x3F));
+    } else if (cp <= 0x10FFFF) {
+        buf[0] = (char)(0xF0 | ((cp >> 18) & 0x07));
+        buf[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+        buf[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        buf[3] = (char)(0x80 | (cp & 0x3F));
+    } else {
+        return s7_error(sc, s7_make_symbol(sc, "utf8-error"),
+                        s7_list(sc, 1, s7_make_string(sc, "lext-utf8-encode: invalid codepoint")));
+    }
+    return s7_make_string(sc, buf);
+}
+
+static s7_pointer builtin_lext_utf8_decode(s7_scheme *sc, s7_pointer args) {
+    s7_pointer str_arg = s7_car(args);
+    if (!s7_is_string(str_arg))
+        return s7_wrong_type_arg_error(sc, "lext-utf8-decode", 1, str_arg, "string");
+
+    const char *s = s7_string(str_arg);
+    size_t len = strlen(s);
+    s7_int offset = 0;
+
+    if (s7_is_pair(s7_cdr(args))) {
+        s7_pointer offset_arg = s7_cadr(args);
+        if (!s7_is_integer(offset_arg))
+            return s7_wrong_type_arg_error(sc, "lext-utf8-decode", 2, offset_arg, "integer");
+        offset = s7_integer(offset_arg);
+    }
+
+    if (offset < 0 || (size_t)offset >= len) {
+        return s7_make_integer(sc, -1);
+    }
+
+    const unsigned char *p = (const unsigned char *)(s + offset);
+    s7_int cp = -1;
+    if (p[0] <= 0x7F) {
+        cp = p[0];
+    } else if ((p[0] & 0xE0) == 0xC0) {
+        if ((size_t)offset + 1 < len)
+            cp = ((p[0] & 0x1F) << 6) | (p[1] & 0x3F);
+    } else if ((p[0] & 0xF0) == 0xE0) {
+        if ((size_t)offset + 2 < len)
+            cp = ((p[0] & 0x0F) << 12) | ((p[1] & 0x3F) << 6) | (p[2] & 0x3F);
+    } else if ((p[0] & 0xF8) == 0xF0) {
+        if ((size_t)offset + 3 < len)
+            cp = ((p[0] & 0x07) << 18) | ((p[1] & 0x3F) << 12) | ((p[2] & 0x3F) << 6) | (p[3] & 0x3F);
+    }
+    return s7_make_integer(sc, cp);
+}
+
+/* ------------------------------------------------------------------ */
 /* Registration                                                         */
 /* ------------------------------------------------------------------ */
 
@@ -160,6 +229,10 @@ void lext_builtins_register(s7_scheme *sc) {
                         "(lext-c-string-array->list ptr) converts NULL-terminated char** to list");
     s7_define_function(sc, "lext-sv->string", builtin_sv_to_string, 2, 0, false,
                        "(lext-sv->string count ptr) decodes a string view data pointer to Scheme string");
+    s7_define_function(sc, "lext-utf8-encode", builtin_lext_utf8_encode, 1, 0, false,
+                       "(lext-utf8-encode codepoint) encodes an integer codepoint to Scheme string");
+    s7_define_function(sc, "lext-utf8-decode", builtin_lext_utf8_decode, 1, 1, false,
+                       "(lext-utf8-decode str [offset]) decodes a character from the string at offset");
 
 
     /* Register open-namespace and use-namespace globally at startup */
