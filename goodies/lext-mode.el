@@ -305,7 +305,8 @@ Editing commands are similar to those of `scheme-mode' and `lisp-mode'."
       ))
    lext-font-lock-keywords-1
    ;; Anchored rainbow delimiters matching (placed last to override paren faces)
-   '(lext-rainbow-highlight-delimiters)))
+                                        ; '(lext-rainbow-highlight-delimiters)
+   ))
 
 (defvar lext-font-lock-keywords lext-font-lock-keywords-1
   "Default expressions to highlight in Lext mode.")

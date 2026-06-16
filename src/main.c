@@ -14,7 +14,7 @@
 #include "lext_da.h"
 #include "lext_builtins.h"
 
-#define VERSTRING "1.3.0"
+#define VERSTRING "1.3.1"
 #ifndef HASHVER
 #define HASHVER "unknown"
 #endif
@@ -73,7 +73,7 @@ enum State { STATE_TEXT, STATE_AT1, STATE_AT2 };
 /* ------------------------------------------------------------------ */
 
 int main(int argc, char **argv) {
-    bool  no_template = false;
+    bool  no_template = true;
     char *input_file  = NULL;
     char *output_file = NULL;
     int   scheme_argc = 0;
@@ -87,20 +87,20 @@ int main(int argc, char **argv) {
             break;
         }
         if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
-            printf("Usage: %s [options] <input_file> [<output_file>]\n", argv[0]);
+            printf("Usage: %s [options] <input_file> [args]/[<output-file>]\n", argv[0]);
             printf("Options:\n");
             printf("  -h, --help         Show this help message\n");
             printf("  -v, --version      Show version information\n");
-            printf("  -s, --no-template  Run as a pure Scheme script runner without output\n");
+            printf("  -t, --template     Run as template engine that will eval `@@()` block (args will be ignored and readed as output file)\n");
             return EXIT_SUCCESS;
         } else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0) {
             printf("lext version " VERSTRING "-" HASHVER "\n");
             return EXIT_SUCCESS;
-        } else if (strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "--no-template") == 0) {
-            no_template = true;
+        } else if (strcmp(argv[i], "-t") == 0 || strcmp(argv[i], "--template") == 0) {
+            no_template = false;
         } else if (argv[i][0] == '-' && argv[i][1] != '\0') {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            fprintf(stderr, "Usage: %s [options] <input_file> [<output_file>]\n", argv[0]);
+            fprintf(stderr, "Usage: %s [options] <input_file>\n", argv[0]);
             return EXIT_FAILURE;
         } else {
             if      (!input_file)  { input_file = argv[i]; script_name = argv[i]; }
@@ -112,7 +112,7 @@ int main(int argc, char **argv) {
             else if (!output_file)   output_file = argv[i];
             else {
                 fprintf(stderr, "Too many arguments.\n");
-                fprintf(stderr, "Usage: %s [options] <input_file> [<output_file>]\n", argv[0]);
+                fprintf(stderr, "Usage: %s [options] <input_file>\n", argv[0]);
                 return EXIT_FAILURE;
             }
         }

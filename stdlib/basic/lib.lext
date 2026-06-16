@@ -1,4 +1,10 @@
-(export while foreach for capture shift)
+(export while foreach for capture shift
+        any every filter partition find foldl foldr take drop flatmap
+        string-split string-join empty? iota range flatten prog1 zip
+        count remove unzip list-index take-while drop-while list-tabulate member?
+        assoc-ref assoc-set assoc-remove
+        string-trim string-trim-left string-trim-right string-prefix? string-suffix? string-contains? string-replace
+        clamp identity)
 
 ;; --- Loop Constructs (while, foreach, for) ---
 (define-macro (while cond . body)
@@ -23,7 +29,7 @@
 (define-macro (for clause . body)
   (cond
     ;; Range style: (for (var start end))
-    ((and (list? clause) (= (length clause) 3))
+    ((and (list? clause) (eqv? (length clause) 3))
      (let ((var (car clause))
            (start (cadr clause))
            (end (caddr clause))
@@ -36,7 +42,7 @@
                   ,@body
                   (,loop (+ ,var 1))))))))
     ;; Range style with step: (for (var start end step))
-    ((and (list? clause) (= (length clause) 4))
+    ((and (list? clause) (eqv? (length clause) 4))
      (let ((var (car clause))
            (start (cadr clause))
            (end (caddr clause))
@@ -66,3 +72,230 @@
          (set! ,lst (cdr ,lst))
          first)
        #f))
+
+;; --- Common Scheme Utility Functions ---
+
+(define (any pred lst)
+  (cond ((null? lst) #f)
+        ((pred (car lst)) #t)
+        (else (any pred (cdr lst)))))
+
+(define (every pred lst)
+  (cond ((null? lst) #t)
+        ((pred (car lst)) (every pred (cdr lst)))
+        (else #f)))
+
+(define (filter pred lst)
+  (let loop ((curr lst) (accum '()))
+    (cond ((null? curr) (reverse accum))
+          ((pred (car curr)) (loop (cdr curr) (cons (car curr) accum)))
+          (else (loop (cdr curr) accum)))))
+
+(define (partition pred lst)
+  (let loop ((curr lst) (in '()) (out '()))
+    (if (null? curr)
+        (cons (reverse in) (reverse out))
+        (let ((x (car curr)))
+          (if (pred x)
+              (loop (cdr curr) (cons x in) out)
+              (loop (cdr curr) in (cons x out)))))))
+
+(define (find pred lst)
+  (cond ((null? lst) #f)
+        ((pred (car lst)) (car lst))
+        (else (find pred (cdr lst)))))
+
+(define (foldl proc init lst)
+  (let loop ((curr lst) (val init))
+    (if (null? curr)
+        val
+        (loop (cdr curr) (proc val (car curr))))))
+
+(define (foldr proc init lst)
+  (if (null? lst)
+      init
+      (proc (car lst) (foldr proc init (cdr lst)))))
+
+(define (take lst n)
+  (let loop ((curr lst) (i 0) (accum '()))
+    (if (or (null? curr) (>= i n))
+        (reverse accum)
+        (loop (cdr curr) (+ i 1) (cons (car curr) accum)))))
+
+(define (drop lst n)
+  (let loop ((curr lst) (i 0))
+    (if (or (null? curr) (>= i n))
+        curr
+        (loop (cdr curr) (+ i 1)))))
+
+(define (flatmap proc lst)
+  (apply append (map proc lst)))
+
+(define (empty? obj)
+  (or (null? obj)
+      (and (sequence? obj)
+           (eqv? (length obj) 0))))
+
+(define (iota n . args)
+  (let ((start (if (pair? args) (car args) 0))
+        (step (if (and (pair? args) (pair? (cdr args))) (cadr args) 1)))
+    (let loop ((i 0) (val start) (res '()))
+      (if (>= i n)
+          (reverse res)
+          (loop (+ i 1) (+ val step) (cons val res))))))
+
+(define (range start . args)
+  (let* ((has-end (pair? args))
+         (actual-start (if has-end start 0))
+         (end (if has-end (car args) start))
+         (step (if (and has-end (pair? (cdr args))) (cadr args) 1)))
+    (if (or (and (> step 0) (>= actual-start end))
+            (and (< step 0) (<= actual-start end)))
+        '()
+        (let loop ((val actual-start) (res '()))
+          (if (if (> step 0) (>= val end) (<= val end))
+              (reverse res)
+              (loop (+ val step) (cons val res)))))))
+
+(define (flatten lst)
+  (let loop ((curr lst) (res '()))
+    (cond ((null? curr) res)
+          ((pair? curr) (loop (car curr) (loop (cdr curr) res)))
+          (else (cons curr res)))))
+
+(define-macro (prog1 first . body)
+  (let ((res (gensym)))
+    `(let ((,res ,first))
+       ,@body
+       ,res)))
+
+(define (zip . lists)
+  (if (or (null? lists) (any null? lists))
+      '()
+      (cons (map car lists) (apply zip (map cdr lists)))))
+
+(define (count pred lst)
+  (let loop ((curr lst) (n 0))
+    (cond ((null? curr) n)
+          ((pred (car curr)) (loop (cdr curr) (+ n 1)))
+          (else (loop (cdr curr) n)))))
+
+(define (remove pred lst)
+  (filter (lambda (x) (not (pred x))) lst))
+
+(define (unzip lst)
+  (if (null? lst)
+      '()
+      (apply zip lst)))
+
+(define (list-index pred lst)
+  (let loop ((curr lst) (i 0))
+    (cond ((null? curr) #f)
+          ((pred (car curr)) i)
+          (else (loop (cdr curr) (+ i 1))))))
+
+(define (take-while pred lst)
+  (let loop ((curr lst) (accum '()))
+    (cond ((null? curr) (reverse accum))
+          ((pred (car curr)) (loop (cdr curr) (cons (car curr) accum)))
+          (else (reverse accum)))))
+
+(define (drop-while pred lst)
+  (let loop ((curr lst))
+    (cond ((null? curr) '())
+          ((pred (car curr)) (loop (cdr curr)))
+          (else curr))))
+
+(define (list-tabulate n proc)
+  (map proc (iota n)))
+
+(define (member? val lst)
+  (if (member val lst) #t #f))
+
+(define (assoc-ref lst key . default-opt)
+  (let ((pair (assoc key lst)))
+    (if pair
+        (cdr pair)
+        (if (pair? default-opt) (car default-opt) #f))))
+
+(define (assoc-set lst key val)
+  (let loop ((curr lst) (accum '()) (added #f))
+    (cond
+      ((null? curr)
+       (if added (reverse accum) (reverse (cons (cons key val) accum))))
+      ((equal? (caar curr) key)
+       (loop (cdr curr) (cons (cons key val) accum) #t))
+      (else
+       (loop (cdr curr) (cons (car curr) accum) added)))))
+
+(define (assoc-remove lst key)
+  (filter (lambda (pair) (not (equal? (car pair) key))) lst))
+
+(define (string-trim str)
+  (let ((len (string-length str)))
+    (let loop-left ((i 0))
+      (if (and (< i len) (char-whitespace? (string-ref str i)))
+          (loop-left (+ i 1))
+          (let loop-right ((j (- len 1)))
+            (if (and (>= j i) (char-whitespace? (string-ref str j)))
+                (loop-right (- j 1))
+                (substring str i (+ j 1))))))))
+
+(define (string-trim-left str)
+  (let ((len (string-length str)))
+    (let loop ((i 0))
+      (if (and (< i len) (char-whitespace? (string-ref str i)))
+          (loop (+ i 1))
+          (substring str i len)))))
+
+(define (string-trim-right str)
+  (let ((len (string-length str)))
+    (let loop ((i (- len 1)))
+      (if (and (>= i 0) (char-whitespace? (string-ref str i)))
+          (loop (- i 1))
+          (substring str 0 (+ i 1))))))
+
+(define (string-prefix? prefix str)
+  (let ((p-len (string-length prefix))
+        (s-len (string-length str)))
+    (and (<= p-len s-len)
+         (string=? prefix (substring str 0 p-len)))))
+
+(define (string-suffix? suffix str)
+  (let ((s-len (string-length suffix))
+        (str-len (string-length str)))
+    (and (<= s-len str-len)
+         (string=? suffix (substring str (- str-len s-len) str-len)))))
+
+(define (string-contains? str query)
+  (if (string-position query str) #t #f))
+
+(define (string-replace str old new)
+  (string-join (string-split str old) new))
+
+(define (clamp val min-val max-val)
+  (cond ((< val min-val) min-val)
+        ((> val max-val) max-val)
+        (else val)))
+
+(define (identity x) x)
+
+;; --- Basic String Utilities ---
+
+(define (string-split str delim)
+  (let ((delim-len (string-length delim)))
+    (if (eqv? delim-len 0)
+        (map string (string->list str))
+        (let loop ((i 0) (start 0) (res '()))
+          (let ((pos (string-position delim str i)))
+            (if pos
+                (loop (+ pos delim-len) (+ pos delim-len) (cons (substring str start pos) res))
+                (reverse (cons (substring str start) res))))))))
+
+(define (string-join lst delim)
+  (if (null? lst)
+      ""
+      (let loop ((curr (cdr lst)) (res (car lst)))
+        (if (null? curr)
+            res
+            (loop (cdr curr) (string-append res delim (car curr)))))))
