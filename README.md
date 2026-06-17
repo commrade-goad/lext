@@ -122,7 +122,7 @@ To strip prefixes and use functions prefix-free:
 Lext includes a heavy stress test suite to verify correct FFI behavior, memory boundaries, and standard library modules.
 To run the stress test suite, run:
 ```bash
-LEXT_HOME=. ./lext -s test/test_stress.lext
+LEXT_HOME=. ./lext test/test_stress.lext
 ```
 This runs all checks (including FFI struct/union by value passing, callbacks, and automatic bounds tracking/error catching).
 
