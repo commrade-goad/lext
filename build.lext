@@ -1,10 +1,5 @@
 (use "stdlib/libnob" "stdlib/basic")
 
-(define (any pred lst)
-  (cond ((null? lst) #f)
-        ((pred (car lst)) #t)
-        (else (any pred (cdr lst)))))
-
 (define build-dir "build")
 
 (define (read-file-string filename)
@@ -72,7 +67,7 @@
 (define (build-lext-module obj src headers extra-cflags git-hash ffi-cflags)
   (let ((out-path (append-builddir obj))
         (all-deps (cons src headers)))
-    (if (any (lambda (dep) (libnob.needs-rebuild? (append-builddir obj) dep)) all-deps)
+    (if (basic.any (lambda (dep) (libnob.needs-rebuild? (append-builddir obj) dep)) all-deps)
         (begin
           (display (string-append "Rebuilding " obj "...\n"))
           (let ((args (append `("gcc" "-O2" "-march=native" "-Wall")
@@ -265,7 +260,7 @@
   ;; 3. Link lext
   (let ((lext-objs '("main.o" "lext_types.o" "lext_io.o" "lext_ffi.o" "lext_module.o"
                      "lext_capture.o" "lext_da.o" "lext_builtins.o" "lext_constants.o" "s7.o" "libnob.o")))
-    (if (any (lambda (obj) (libnob.needs-rebuild? (append-builddir "lext") (append-builddir obj)))
+    (if (basic.any (lambda (obj) (libnob.needs-rebuild? (append-builddir "lext") (append-builddir obj)))
              lext-objs)
         (begin
           (display "Linking lext...\n")
