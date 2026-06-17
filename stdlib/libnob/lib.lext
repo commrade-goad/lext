@@ -1,7 +1,7 @@
 (use "stdlib/basic" "stdlib/c")
 
 (export minimal-log-level minimal-log-level-ptr minimal-log-level-set!
-        log cmd-new cmd-append cmd-free cmd-run delete-file
+        log cmd-new cmd-append cmd-free cmd-run delete-file-recursive delete-file
         mkdir-if-not-exists file-exists copy-file
         copy-directory-recursively read-entire-file write-entire-file
         get-file-type rename path-name get-current-dir-temp
@@ -112,7 +112,7 @@
 (c.c-import internal-nob-needs-rebuild1           internal-libnob "nob_needs_rebuild1"              uchar   (string string))
 (c.c-import internal-nob-delete-file               internal-libnob "nob_delete_file"                 uchar   (string))
 (c.c-import internal-nob-mkdir-if-nexist           internal-libnob "nob_mkdir_if_not_exists"         uchar   (string))
-(c.c-import internal-nob-file-exists               internal-libnob "nob_file_exists"                 int     (string))
+(c.c-import internal-nob-file-exists               internal-libnob "nob_file_exists"                 uchar   (string))
 (c.c-import internal-nob-copy-file                 internal-libnob "nob_copy_file"                   uchar   (string string))
 (c.c-import internal-nob-copy-dir-recursively      internal-libnob "nob_copy_directory_recursively"  uchar   (string string))
 (c.c-import internal-nob-read-entire-file          internal-libnob "nob_read_entire_file"            uchar   (string pointer))
@@ -250,15 +250,15 @@
 
 ;; delete-file: delete a file
 (define (delete-file path)
-  (internal-nob-delete-file path))
+  (not (= (internal-nob-delete-file path) 0)))
 
 ;; mkdir-if-not-exists: make directory if it doesn't exist
 (define (mkdir-if-not-exists path)
-  (internal-nob-mkdir-if-nexist path))
+  (not (= (internal-nob-mkdir-if-nexist path) 0)))
 
 ;; file-exists: check if file exists
 (define (file-exists path)
-  (internal-nob-file-exists path))
+  (not (= (internal-nob-file-exists path) 0)))
 
 ;; copy-file: copy file
 (define (copy-file src dst)
@@ -628,3 +628,14 @@
 ;; --- Directory Walker (native C) ---
 (define* (walk-dir root func (level 0))
   (lext-walk-dir root func level))
+
+;; Delete file recursive nice function to have but dangerous at the same time :)
+(define (delete-file-recursive path)
+  (let ((s '()))
+    (walk-dir path
+              (lambda (path type level)
+                (set! s (cons path s))))
+    (basic.foreach (f s) (delete-file f))
+    (delete-file path)
+    )
+  )

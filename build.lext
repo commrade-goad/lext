@@ -298,11 +298,11 @@
             (error "Please specify PREFIX from the env to put the install destination!")
             (exit))
           (else (begin
-                  (if (eq? (libnob.file-exists ".installed") 1)
+                  (if (libnob.file-exists ".installed")
                       (begin
                         (let ((content (libnob.read-entire-file ".installed")))
                           (if (not (string=? content install-path))
-                              (error (format #f "Lext already installed at different path: `~A`, exiting..." install-path))
+                              (error (format #f "Lext already installed at different path: `~A`, exiting..." content))
                               )
                           )))
 
@@ -333,7 +333,7 @@
       )
     )
  ((member "uninstall" argv string=?)
-  (if (eq? (libnob.file-exists ".installed") 1)
+  (if (libnob.file-exists ".installed")
       (begin
         (let ((content (libnob.read-entire-file ".installed")))
           (let (
