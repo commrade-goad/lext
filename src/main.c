@@ -107,20 +107,29 @@ static s7_pointer on_s7_error(s7_scheme *s7, s7_pointer args) {
     }
 
     /* 7. Stacktrace */
-    char *trace_str = (char *)s7_object_to_c_string(s7, trace);
-    if (trace_str) {
-        fprintf(stderr, "\n[Stacktrace / Expansion Path]\n%s\n", trace_str);
-        free(trace_str);
+    if (s7_is_string(trace)) {
+        /* If it's already a string, pull the raw, unescaped bytes */
+        fprintf(stderr, "\n[Stacktrace / Expansion Path]\n%s\n", s7_string(trace));
+    } else {
+        /* Fallback for lists/other types */
+        char *trace_str = (char *)s7_object_to_c_string(s7, trace);
+        if (trace_str) {
+            fprintf(stderr, "\n[Stacktrace / Expansion Path]\n%s\n", trace_str);
+            free(trace_str);
+        }
     }
 
     /* 8. History */
-    char *hist_str = (char *)s7_object_to_c_string(s7, hist);
-    if (hist_str) {
-        fprintf(stderr, "\n[History]\n%s\n", hist_str);
-        free(hist_str);
+    if (s7_is_string(hist)) {
+        fprintf(stderr, "\n[History]\n%s\n", s7_string(hist));
+    } else {
+        /* History is normally a circular list of recent expressions, so this fallback usually runs */
+        char *hist_str = (char *)s7_object_to_c_string(s7, hist);
+        if (hist_str) {
+            fprintf(stderr, "\n[History]\n%s\n", hist_str);
+            free(hist_str);
+        }
     }
-
-    fprintf(stderr, "=========================\n\n");
 
     return s7_unspecified(s7);
 }
