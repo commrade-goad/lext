@@ -71,6 +71,20 @@ static void export_bindings_to_current(s7_scheme *sc, s7_pointer env, s7_pointer
     }
 }
 
+static s7_pointer builtin_module_load(s7_scheme *sc, s7_pointer args) {
+    s7_pointer env = s7_curlet(sc);
+    const char *file = s7_string(s7_car(args));
+
+    s7_pointer mod_dir_sym = s7_make_symbol(sc, "*module-dir*");
+    s7_pointer mod_dir_val = s7_symbol_local_value(sc, mod_dir_sym, env);
+
+    if (mod_dir_val != s7_undefined(sc) && file[0] != '/') {
+        char absolute_path[1024];
+        snprintf(absolute_path, sizeof(absolute_path), "%s/%s", s7_string(mod_dir_val), file);
+        return s7_load_with_environment(sc, absolute_path, env);
+    }
+    return s7_load_with_environment(sc, file, env);
+}
 
 static s7_pointer builtin_use_lib(s7_scheme *sc, s7_pointer args) {
     s7_pointer caller_env = s7_curlet(sc);
@@ -103,10 +117,20 @@ static s7_pointer builtin_use_lib(s7_scheme *sc, s7_pointer args) {
             s7_gc_unprotect_at(sc, gc_loc);
             return s7_error(sc, s7_make_symbol(sc, "use-error"), s7_make_string(sc, "The : accessor on the current dir is not implemented in windows."));
             #else
-            current_dir = getcwd(NULL, 0);
+            s7_pointer mod_dir_sym = s7_make_symbol(sc, "*module-dir*");
+            s7_pointer mod_dir_val = s7_symbol_local_value(sc, mod_dir_sym, caller_env);
+
+            if (mod_dir_val != s7_undefined(sc)) {
+                const char *mod_path = s7_string(mod_dir_val);
+                current_dir = malloc(strlen(mod_path) + 1);
+                strcpy(current_dir, mod_path);
+            } else {
+                current_dir = getcwd(NULL, 0);
+            }
+
             if (!current_dir) {
                 s7_gc_unprotect_at(sc, gc_loc);
-                return s7_error(sc, s7_make_symbol(sc, "use-error"), s7_make_string(sc, "Failed to get the current working dir."));
+                return s7_error(sc, s7_make_symbol(sc, "use-error"), s7_make_string(sc, "Failed to resolve directory for ':' accessor."));
             }
             #endif /* !_WIN32 */
             ++lib_str;
@@ -148,14 +172,26 @@ static s7_pointer builtin_use_lib(s7_scheme *sc, s7_pointer args) {
                 s7_pointer new_env = s7_sublet(sc, caller_env, s7_nil(sc));
                 s7_int inner_gc_loc = s7_gc_protect(sc, new_env);
 
+                HStr dirbuf = {0};
+                hstr_printf(&dirbuf, "%.*s/%s", (int)current.sz, (const char *)current.dt, lib_str);
+                dirbuf.dt[dirbuf.sz] = 0;
+                s7_define(sc, new_env, s7_make_symbol(sc, "*module-dir*"), s7_make_string(sc, (const char *)dirbuf.dt));
+                hstr_free(&dirbuf);
+
+                s7_define(sc, new_env,
+                          s7_make_symbol(sc, "load"),
+                          s7_make_function(sc, "load", builtin_module_load, 1, 0, false, "Local module load, relative to *module-dir*"));
+
+                meow_hash_table_set(lext_loaded_modules, key, (void *)new_env);
+
                 s7_pointer load_res = s7_load_with_environment(sc, (const char *)path.dt, new_env);
                 if (load_res != NULL) {
-                    meow_hash_table_set(lext_loaded_modules, key, (void *)new_env);
                     export_bindings_to_current(sc, new_env, caller_env, prefix, lib_str);
                     loaded = true;
                 } else {
                     loaded = false;
                     s7_gc_unprotect_at(sc, inner_gc_loc);
+                    meow_hash_table_set(lext_loaded_modules, key, NULL);
                 }
                 break;
             }

@@ -13,7 +13,7 @@
         import struct union enum translate-ffi-type set! c-size
         define-c-struct define-c-union define-c-enum c-import
         with-heap-alloc with-alloc with-c-string with-c-array with-c-string-array
-        c-memset c-memcpy c-ptr+ c-tptr
+        c-memset c-memcpy c-ptr+ c-tptr c-array->list
         utf8_char utf8-char? utf8-char->string string->utf8-char
         utf8-len utf8-ref utf8-substring utf8-slice utf8-index
         utf8-reverse utf8-split utf8-join utf8-ref-codepoint
@@ -767,3 +767,11 @@
                       (loop (+ i bytes)))
                     (loop (+ i 1)))))))))
 
+
+(define (c-array->list ptr type count)
+  "Converts a C-style array starting at 'ptr' of 'type' with 'count' elements into a Scheme list."
+  (let loop ((i 0) (result '()))
+    (if (eqv? i count)
+        (reverse result) ;; Reverse because we build the list by prepending
+        (let ((element (deref ptr type i)))
+          (loop (+ i 1) (cons element result))))))
