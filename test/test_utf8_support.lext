@@ -117,7 +117,7 @@
   (call-with-output-file temp-file
     (lambda (p)
       (display "Hello λ中 @@(unmatched" p)))
-  (libnob.cmd-run `("./build/lext" ,temp-file ,out-file) :stderr-path err-log)
+  (libnob.cmd-run `("./build/lext" "-t" ,temp-file ,out-file) :stderr-path err-log)
   (let ((log-content (libnob.read-entire-file err-log)))
     (display "  Captured compiler stderr:\n")
     (display log-content)

@@ -602,17 +602,17 @@
                         acc)))
          (path "build/stress_io/big.txt"))
     (check-true "write big file" (libnob.write-entire-file path big-str))
-    (check-true "big file exists" (not (= (libnob.file-exists path) 0)))
+    (check-true "big file exists" (libnob.file-exists path))
     (let ((contents (libnob.read-entire-file path)))
       (check-true "read back big file string?" (string? contents))
       (check "read back content length" (string-length contents) (string-length big-str))))
 
   ;; 2. Copy and rename pipeline
   (libnob.copy-file "build/stress_io/big.txt" "build/stress_io/big_copy.txt")
-  (check-true "copy exists" (not (= (libnob.file-exists "build/stress_io/big_copy.txt") 0)))
+  (check-true "copy exists" (libnob.file-exists "build/stress_io/big_copy.txt"))
   (libnob.rename "build/stress_io/big_copy.txt" "build/stress_io/big_renamed.txt")
-  (check-true  "renamed exists"        (not (= (libnob.file-exists "build/stress_io/big_renamed.txt") 0)))
-  (check-false "original gone" (not (= (libnob.file-exists "build/stress_io/big_copy.txt") 0)))
+  (check-true  "renamed exists"        (libnob.file-exists "build/stress_io/big_renamed.txt"))
+  (check-false "original gone" (libnob.file-exists "build/stress_io/big_copy.txt"))
 
   ;; 3. File type detection
   (check "file type regular"   (libnob.get-file-type "build/stress_io/big.txt") 'regular)

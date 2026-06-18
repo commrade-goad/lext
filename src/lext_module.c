@@ -72,18 +72,29 @@ static void export_bindings_to_current(s7_scheme *sc, s7_pointer env, s7_pointer
 }
 
 static s7_pointer builtin_module_load(s7_scheme *sc, s7_pointer args) {
-    s7_pointer env = s7_curlet(sc);
+    /* The environment where 'load' was called from (used to resolve relative paths) */
+    s7_pointer caller_env = s7_curlet(sc);
+
+    /* The environment where the file should actually be loaded */
+    s7_pointer target_env = caller_env;
+    if (s7_is_pair(s7_cdr(args))) {
+        target_env = s7_cadr(args);
+    }
+
     const char *file = s7_string(s7_car(args));
 
     s7_pointer mod_dir_sym = s7_make_symbol(sc, "*module-dir*");
-    s7_pointer mod_dir_val = s7_symbol_local_value(sc, mod_dir_sym, env);
+    s7_pointer mod_dir_val = s7_symbol_local_value(sc, mod_dir_sym, caller_env);
 
+    /* If it's a relative path, resolve it against *module-dir* */
     if (mod_dir_val != s7_undefined(sc) && file[0] != '/') {
         char absolute_path[1024];
         snprintf(absolute_path, sizeof(absolute_path), "%s/%s", s7_string(mod_dir_val), file);
-        return s7_load_with_environment(sc, absolute_path, env);
+        return s7_load_with_environment(sc, absolute_path, target_env);
     }
-    return s7_load_with_environment(sc, file, env);
+
+    /* Otherwise, load the absolute path directly */
+    return s7_load_with_environment(sc, file, target_env);
 }
 
 static s7_pointer builtin_use_lib(s7_scheme *sc, s7_pointer args) {
@@ -180,7 +191,7 @@ static s7_pointer builtin_use_lib(s7_scheme *sc, s7_pointer args) {
 
                 s7_define(sc, new_env,
                           s7_make_symbol(sc, "load"),
-                          s7_make_function(sc, "load", builtin_module_load, 1, 0, false, "Local module load, relative to *module-dir*"));
+                          s7_make_function(sc, "load", builtin_module_load, 1, 1, false, "Local module load, relative to *module-dir*"));
 
                 meow_hash_table_set(lext_loaded_modules, key, (void *)new_env);
 
