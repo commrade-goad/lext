@@ -59,6 +59,72 @@ static s7_pointer builtin_ffi_typedef(s7_scheme *sc, s7_pointer args) {
     return s7_unspecified(sc);
 }
 
+static s7_pointer on_s7_error(s7_scheme *s7, s7_pointer args) {
+    /* 1. Grab trace and history BEFORE state changes */
+    s7_pointer trace = s7_stacktrace(s7);
+    s7_pointer hist  = s7_history(s7);
+
+    /* 2. Format the exact human-readable error message via Scheme */
+    s7_pointer e_msg = s7_eval_c_string(s7,
+        "(let* ((e (owlet))\n"
+        "       (err-type (if e (e 'error-type) 'unknown))\n"
+        "       (err-data (if e (e 'error-data) '())))\n"
+        "  (if (and (pair? err-data) (string? (car err-data)))\n"
+        "      (apply format #f err-data)\n"
+        "      (format #f \"~A: ~A\" err-type err-data)))"
+    );
+
+    /* 3. Extract exact coordinates and failing snippet */
+    s7_pointer e_file = s7_eval_c_string(s7, "(let ((e (owlet))) (if e (e 'error-file) #f))");
+    s7_pointer e_line = s7_eval_c_string(s7, "(let ((e (owlet))) (if e (e 'error-line) 0))");
+    s7_pointer e_pos  = s7_eval_c_string(s7, "(let ((e (owlet))) (if e (e 'error-position) 0))");
+    s7_pointer e_code = s7_eval_c_string(s7, "(let ((e (owlet))) (if e (e 'error-code) #f))");
+
+    /* Convert s7 types to C primitives */
+    const char *file = s7_is_string(e_file) ? s7_string(e_file) : "<unknown>";
+    long line = s7_is_integer(e_line) ? s7_integer(e_line) : 0;
+    const char *msg  = s7_is_string(e_msg)  ? s7_string(e_msg)  : "Unknown error";
+
+    /* 4. Flag the error for main() */
+    s7_eval_c_string(s7, "(set! *has-error* #t)");
+
+    /* 5. Emacs compilation-mode compliant output */
+    fprintf(stderr, "\n%s:%ld: error: %s\n", file, line, msg);
+    char *err_str = (char *)s7_object_to_c_string(s7, args);
+    if (err_str) {
+        fprintf(stderr, "  from the lisp object: %s\n", err_str);
+        free(err_str);
+    }
+
+
+    /* 6. Print the exact snippet that failed */
+    if (e_code != s7_f(s7)) {
+        char *code_str = (char *)s7_object_to_c_string(s7, e_code);
+        if (code_str) {
+            fprintf(stderr, "Snippet: %s\n", code_str);
+            free(code_str);
+        }
+    }
+
+    /* 7. Stacktrace */
+    char *trace_str = (char *)s7_object_to_c_string(s7, trace);
+    if (trace_str) {
+        fprintf(stderr, "\n[Stacktrace / Expansion Path]\n%s\n", trace_str);
+        free(trace_str);
+    }
+
+    /* 8. History */
+    char *hist_str = (char *)s7_object_to_c_string(s7, hist);
+    if (hist_str) {
+        fprintf(stderr, "\n[History]\n%s\n", hist_str);
+        free(hist_str);
+    }
+
+    fprintf(stderr, "=========================\n\n");
+
+    return s7_unspecified(s7);
+}
+
 /* ------------------------------------------------------------------ */
 /* Template lexer state                                                 */
 /* ------------------------------------------------------------------ */
@@ -160,6 +226,7 @@ int main(int argc, char **argv) {
 
     /* ---- Initialise subsystems ---- */
     lext_module_init();
+    s7_set_history_enabled(s7, true);
 
     /* #11: Init type cache */
     lext_type_cache = meow_hash_table_new();
@@ -189,29 +256,12 @@ int main(int argc, char **argv) {
 
     /* ---- Register Error Hook for Exit Status Tracking & Formatting ---- */
     s7_define_variable(s7, "*has-error*", s7_make_boolean(s7, false));
+    s7_define_function(s7, "my-error-handler", on_s7_error, 1, 0, false, "Prints trace/history on error");
+
     s7_eval_c_string(s7,
-        "(set! (hook-functions *error-hook*)\n"
-        "      (cons (lambda (hook)\n"
-        "              (set! *has-error* #t)\n"
-        "              (let ((e (owlet)))\n"
-        "                (if e\n"
-        "                    (let ((err-type (e 'error-type))\n"
-        "                          (err-data (e 'error-data))\n"
-        "                          (err-code (e 'error-code))\n"
-        "                          (err-file (e 'error-file))\n"
-        "                          (err-line (e 'error-line))\n"
-        "                          (err-pos  (e 'error-position)))\n"
-        "                      (if (and (pair? err-data) (string? (car err-data)))\n"
-        "                          (begin\n"
-        "                            (format *stderr* \"~%;\")\n"
-        "                            (apply format *stderr* err-data)\n"
-        "                            (format *stderr* \"~%\"))\n"
-        "                          (format *stderr* \"~%;~S ~S~%\" err-type err-data))\n"
-        "                      (if (string? err-file)\n"
-        "                          (format *stderr* \";    ~A~%;    ~A, line ~D, position: ~D~%\"\n"
-        "                                  err-code err-file err-line err-pos)))))\n"
-        "              #t)\n"
-        "            (hook-functions *error-hook*)))");
+                     "(set! (hook-functions *error-hook*) "
+                     "      (cons my-error-handler (hook-functions *error-hook*)))"
+    );
 
     /* ---- Script-only mode ---- */
     if (no_template) {
