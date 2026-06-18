@@ -155,3 +155,72 @@
 (let ((parts (string-split "apple,orange,banana" ",")))
   (display (format #f "  string-split: ~A\n" parts))
   (display (format #f "  string-join: ~A\n" (string-join parts "-"))))
+
+(display "\n=== 10. Testing shift macro ===\n")
+(let ((my-list '(a b c)))
+  (display (format #f "  Initial list: ~A\n" my-list))
+  (display (format #f "  Shifted element: ~A\n" (shift my-list)))
+  (display (format #f "  List after 1st shift: ~A\n" my-list))
+  (shift my-list) ; removes 'b'
+  (shift my-list) ; removes 'c'
+  (display (format #f "  Shift on empty list returns: ~A\n" (shift my-list))))
+
+(display "\n=== 11. Testing Edge Cases ===\n")
+(display "  Testing string-split with empty delimiter:\n")
+(display (format #f "    (string-split \"hello\" \"\"): ~S\n" (string-split "hello" "")))
+
+(display "  Testing string-join with empty list:\n")
+(display (format #f "    (string-join '() \"-\"): ~S\n" (string-join '() "-")))
+
+(display "  Testing for loop with uneven step (10 to 0 step -3):\n")
+(let ((steps '()))
+  (for (i 10 0 -3)
+    (set! steps (cons i steps)))
+  (display (format #f "    Steps taken: ~A\n" (reverse steps))))
+
+(display "\n=== 12. Testing Threading Macros (/> and //>) ===\n")
+(let ((raw-string "  apple, banana, cherry  ")
+      (raw-list '(1 2 3 4 5)))
+
+  (display "  Thread-first (/>) with Strings:\n")
+  (display (format #f "    Initial: ~S\n" raw-string))
+  (display (format #f "    Result:  ~S\n"
+                   (/> raw-string
+                       (string-trim)
+                       (string-split ",")
+                       (car)))) ; Should extract just "apple"
+
+  (display "  Thread-last (//>) with Lists:\n")
+  (display (format #f "    Initial: ~A\n" raw-list))
+  (display (format #f "    Result:  ~A\n"
+                   (//> raw-list
+                        (map (lambda (x) (* x 2)))       ; '(2 4 6 8 10)
+                        (filter (lambda (x) (> x 5)))    ; '(6 8 10)
+                        (foldl + 0)))))                  ; 24
+
+(display "\n=== 13. Testing Plist Utilities ===\n")
+(let ((my-plist '(:name "lext" :version "1.0" :compiled #t)))
+  (display (format #f "  Initial plist: ~A\n" my-plist))
+
+  (display "  plist-get:\n")
+  (display (format #f "    Get :name -> ~A\n" (plist-get my-plist :name)))
+  (display (format #f "    Get missing without default -> ~A\n" (plist-get my-plist :missing)))
+  (display (format #f "    Get missing with default -> ~S\n" (plist-get my-plist :missing "fallback-value")))
+
+  (display "  plist-put:\n")
+  (display (format #f "    Update existing (:version \"2.0\") -> ~A\n"
+                   (plist-put my-plist :version "2.0")))
+  (display (format #f "    Add new (:fast #t) -> ~A\n"
+                   (plist-put my-plist :fast #t))))
+
+(display "\n=== 14. Testing Environment Utilities ===\n")
+(display "  getenv-or:\n")
+;; Testing a guaranteed missing variable to ensure the fallback triggers
+(display (format #f "    Missing variable fallback: ~S\n"
+                 (getenv-or "THIS_VAR_DOES_NOT_EXIST_123" "default-fallback-path")))
+
+;; Testing an existing variable (HOME is almost always set on Unix/Linux)
+(let ((home-val (getenv "HOME")))
+  (if home-val
+      (display (format #f "    Existing variable (HOME): ~S\n" (getenv-or "HOME" "/fallback/path")))
+      (display "    (HOME env var not found on this system, skipping...)\n")))

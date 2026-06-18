@@ -360,6 +360,7 @@
      (if (not (libnob.cmd-run `("build/lext" ,(string-append "test/" f))))
          (error (format #f "Test case ~A failed... aborting..." f))
          ))
+    (exit)
     ))
  )
 

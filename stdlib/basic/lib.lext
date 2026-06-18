@@ -4,7 +4,7 @@
         count remove unzip list-index take-while drop-while list-tabulate member?
         assoc-ref assoc-set assoc-remove
         string-trim string-trim-left string-trim-right string-prefix? string-suffix? string-contains? string-replace
-        clamp identity)
+        clamp identity /> //> plist-get plist-get plist-put getenv-or)
 
 ;; --- Loop Constructs (while, foreach, for) ---
 (define-macro (while cond . body)
@@ -299,3 +299,58 @@
         (if (null? curr)
             res
             (loop (cdr curr) (string-append res delim (car curr)))))))
+
+;; --- Threading Macros ---
+;; Thread-first: (/> x (f a) (g b)) becomes (g (f x a) b)
+(define-macro (/> x . forms)
+  (let loop ((val x) (exprs forms))
+    (if (null? exprs)
+        val
+        (let ((form (car exprs)))
+          (if (list? form)
+              (loop `(,(car form) ,val ,@(cdr form)) (cdr exprs))
+              (loop `(,form ,val) (cdr exprs)))))))
+
+;; Thread-last: (//> x (f a) (g b)) becomes (g b (f a x))
+(define-macro (//> x . forms)
+  (let loop ((val x) (exprs forms))
+    (if (null? exprs)
+        val
+        (let ((form (car exprs)))
+          (if (list? form)
+              (loop `(,@form ,val) (cdr exprs))
+              (loop `(,form ,val) (cdr exprs)))))))
+
+;; thread example: (//> "  a,b,c  "
+;;                  (string-trim)
+;;                  (string-split ",")
+;;                  (string-join "-"))
+
+;; --- Property List (Plist) Utilities ---
+(define (plist-get plist key . default-opt)
+  (let loop ((lst plist))
+    (cond ((null? lst) (if (pair? default-opt) (car default-opt) #f))
+          ((null? (cdr lst)) #f) ; Malformed plist
+          ((eqv? (car lst) key) (cadr lst))
+          (else (loop (cddr lst))))))
+
+(define (plist-put plist key val)
+  (let loop ((lst plist) (accum '()) (found #f))
+    (cond ((null? lst)
+           (if found
+               (reverse accum)
+               (reverse (cons val (cons key accum)))))
+          ((null? (cdr lst)) (reverse accum)) ; Malformed fallback
+          ((eqv? (car lst) key)
+           (loop (cddr lst) (cons val (cons key accum)) #t))
+          (else
+           (loop (cddr lst) (cons (cadr lst) (cons (car lst) accum)) found)))))
+
+;; plist example: '( :name "lext" :version "1.0" :fast #t )
+
+;; --- Environment Utilities ---
+(define (getenv-or key default-val)
+  (let ((val (getenv key)))
+    (if (or (not val) (string=? val ""))
+        default-val
+        val)))
