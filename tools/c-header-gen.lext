@@ -1,0 +1,472 @@
+;;; c-header-gen.lext — C header → Lext FFI glue generator
+;;;
+;;; Usage:
+;;;   LEXT_HOME=. ./lext -s tools/c-header-gen.lext -- <header.h> [<api-prefix>] [<lib-var>]
+;;;
+;;;   header.h   — path to a local file, or an http/https URL (fetched via curl)
+;;;   api-prefix — function export prefix to filter (e.g. "RLAPI "), default ""
+;;;   lib-var    — Scheme var name for the opened lib handle, default "lib"
+;;;
+;;; Output goes to stdout; redirect to a .lext file of your choice.
+
+(use "stdlib/basic" "stdlib/c" "stdlib/libnob")
+(open-namespace "basic")
+(open-namespace "c")
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; String Helpers
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(define (string-trim-ws s)
+  (let* ((len (string-length s))
+         (start (let loop ((i 0))
+                  (if (or (>= i len) (not (char-whitespace? (string-ref s i)))) i (loop (+ i 1)))))
+         (end   (let loop ((i (- len 1)))
+                  (if (or (< i start) (not (char-whitespace? (string-ref s i)))) (+ i 1) (loop (- i 1))))))
+    (substring s start end)))
+
+(define (string-split-lines s)
+  (let loop ((i 0) (start 0) (acc '()))
+    (cond
+      ((>= i (string-length s))
+       (reverse (cons (substring s start i) acc)))
+      ((char=? (string-ref s i) #\newline)
+       (loop (+ i 1) (+ i 1) (cons (substring s start i) acc)))
+      (else (loop (+ i 1) start acc)))))
+
+(define (string-contains? h n)
+  (let ((hl (string-length h)) (nl (string-length n)))
+    (if (> nl hl) #f
+        (let loop ((i 0))
+          (cond ((> (+ i nl) hl) #f)
+                ((string=? (substring h i (+ i nl)) n) #t)
+                (else (loop (+ i 1))))))))
+
+(define (string-starts-with? s p)
+  (let ((pl (string-length p)) (sl (string-length s)))
+    (and (>= sl pl) (string=? (substring s 0 pl) p))))
+
+(define (string-last-sp s)
+  (let loop ((i (- (string-length s) 1)))
+    (cond ((< i 0) -1)
+          ((char-whitespace? (string-ref s i)) i)
+          (else (loop (- i 1))))))
+
+(define (string-index-of s ch)
+  (let loop ((i 0))
+    (cond ((>= i (string-length s)) -1)
+          ((char=? (string-ref s i) ch) i)
+          (else (loop (+ i 1))))))
+
+(define (string-last-index-of s ch)
+  (let loop ((i (- (string-length s) 1)))
+    (cond ((< i 0) -1)
+          ((char=? (string-ref s i) ch) i)
+          (else (loop (- i 1))))))
+
+(define (string-replace-all s from to)
+  (let ((flen (string-length from)))
+    (let loop ((i 0) (acc ""))
+      (cond
+        ((> (+ i flen) (string-length s))
+         (string-append acc (substring s i (string-length s))))
+        ((string=? (substring s i (+ i flen)) from)
+         (loop (+ i flen) (string-append acc to)))
+        (else (loop (+ i 1) (string-append acc (substring s i (+ i 1)))))))))
+
+;; Strip // comment from a line
+(define (strip-comment line)
+  (let loop ((i 0))
+    (cond ((>= i (- (string-length line) 1)) (string-trim-ws line))
+          ((and (char=? (string-ref line i) #\/)
+                (char=? (string-ref line (+ i 1)) #\/))
+           (string-trim-ws (substring line 0 i)))
+          (else (loop (+ i 1))))))
+
+;; Strip trailing chars from a set
+(define (rstrip s chars)
+  (let loop ((s s))
+    (if (and (> (string-length s) 0)
+             (member (string-ref s (- (string-length s) 1)) chars))
+        (loop (substring s 0 (- (string-length s) 1)))
+        s)))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; C → FFI type mapping
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(define (c-type->ffi raw)
+  (let* ((t (string-trim-ws raw))
+         (is-ptr (string-contains? t "*"))
+         (t2 (string-trim-ws (string-replace-all (string-replace-all t "const " "") "volatile " ""))))
+    (if is-ptr "pointer"
+        (cond
+          ((string=? t2 "void")              "void")
+          ((or (string=? t2 "bool") (string=? t2 "_Bool")) "int")
+          ((string=? t2 "float")             "float")
+          ((string=? t2 "double")            "double")
+          ((or (string=? t2 "int") (string=? t2 "signed int")) "int")
+          ((or (string=? t2 "short") (string=? t2 "short int") (string=? t2 "signed short")) "int16")
+          ((or (string=? t2 "long") (string=? t2 "long int")) "long")
+          ((or (string=? t2 "long long") (string=? t2 "long long int")) "int64")
+          ((or (string=? t2 "unsigned int") (string=? t2 "unsigned")) "uint")
+          ((or (string=? t2 "unsigned char") (string=? t2 "uint8_t")) "uchar")
+          ((or (string=? t2 "char") (string=? t2 "signed char")) "uchar")
+          ((or (string=? t2 "unsigned short") (string=? t2 "uint16_t")) "uint16")
+          ((string=? t2 "uint32_t")          "uint32")
+          ((string=? t2 "int8_t")            "int8")
+          ((string=? t2 "int16_t")           "int16")
+          ((string=? t2 "int32_t")           "int32")
+          ((string=? t2 "int64_t")           "int64")
+          ((or (string=? t2 "uint64_t") (string=? t2 "unsigned long long")) "uint64")
+          ((or (string=? t2 "unsigned long") (string=? t2 "size_t") (string=? t2 "ulong")) "ulong")
+          (else t2)))))
+
+;; Split comma-separated params respecting parens depth
+(define (split-params s)
+  (let loop ((i 0) (depth 0) (start 0) (acc '()))
+    (cond
+      ((>= i (string-length s))
+       (let ((tok (string-trim-ws (substring s start i))))
+         (reverse (if (string=? tok "") acc (cons tok acc)))))
+      ((char=? (string-ref s i) #\()  (loop (+ i 1) (+ depth 1) start acc))
+      ((char=? (string-ref s i) #\))  (loop (+ i 1) (- depth 1) start acc))
+      ((and (char=? (string-ref s i) #\,) (= depth 0))
+       (loop (+ i 1) 0 (+ i 1) (cons (string-trim-ws (substring s start i)) acc)))
+      (else (loop (+ i 1) depth start acc)))))
+
+;; Parse one parameter "const char *title" → (ffi-type . name-or-#f)
+(define (parse-param raw)
+  (let* ((p      (string-trim-ws raw))
+         (is-ptr (string-contains? p "*"))
+         (p2     (string-trim-ws (string-replace-all (string-replace-all p "const " "") "*" " ")))
+         (sp     (string-last-sp p2))
+         (type-r (if (>= sp 0) (string-trim-ws (substring p2 0 sp)) p2))
+         (type-s (if is-ptr (string-append type-r " *") type-r))
+         (name   (if (>= sp 0) (substring p2 (+ sp 1) (string-length p2)) #f)))
+    (cons (c-type->ffi type-s) name)))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Struct field parser — handles multi-name "float m0, m4, m8, m12;" and arrays
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(define (parse-declarator decl base-type base-is-ptr?)
+  (let* ((decl (string-trim-ws decl))
+         ;; 1. Check for array suffix [size]
+         (has-arr (and (string-contains? decl "[") (string-contains? decl "]")))
+         (open-b  (if has-arr (string-index-of decl #\[) -1))
+         (close-b (if has-arr (string-index-of decl #\]) -1))
+         (arr-sz  (if has-arr 
+                      (string->number (string-trim-ws (substring decl (+ open-b 1) close-b)))
+                      #f))
+         (name-raw (if has-arr (substring decl 0 open-b) decl))
+         ;; 2. Check for pointer asterisk
+         (is-ptr  (or base-is-ptr? (string-contains? name-raw "*")))
+         (name    (string-trim-ws (string-replace-all name-raw "*" "")))
+         ;; 3. Determine element FFI type
+         (elem-ffi (if is-ptr "pointer" (c-type->ffi base-type)))
+         ;; 4. Construct final FFI type
+         (ffi-type (if arr-sz 
+                       (list 'array (string->symbol elem-ffi) arr-sz)
+                       (string->symbol elem-ffi))))
+    (cons name ffi-type)))
+
+(define (parse-struct-field line)
+  (let* ((l (string-trim-ws (rstrip (strip-comment line) (list #\; #\,)))))
+    (if (or (string=? l "") (string-contains? l "{") (string-contains? l "}")) '()
+        (let* ((decls-list (split-params l)))
+          (if (null? decls-list) '()
+              (let* ((first-elem (car decls-list))
+                     (sp         (string-last-sp first-elem)))
+                (if (< sp 0) '()
+                    (let* ((base-type      (string-trim-ws (substring first-elem 0 sp)))
+                           (first-decl     (string-trim-ws (substring first-elem (+ sp 1) (string-length first-elem))))
+                           ;; check if base-type has trailing pointer asterisk
+                           (base-is-ptr    (string-contains? base-type "*"))
+                           ;; clean base-type by stripping const/volatile/asterisk
+                           (clean-base     (string-trim-ws (string-replace-all (string-replace-all (string-replace-all base-type "const " "") "volatile " "") "*" "")))
+                           ;; parse the first declarator
+                           (first-parsed   (parse-declarator first-decl clean-base base-is-ptr))
+                           ;; parse the other declarators in the comma-list
+                           (other-parsed   (map (lambda (d) (parse-declarator d clean-base base-is-ptr)) (cdr decls-list))))
+                      (cons first-parsed other-parsed)))))))))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; API function line parser
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(define (parse-fn-line line api-prefix)
+  (let* ((l (string-trim-ws (rstrip (strip-comment line) (list #\;)))))
+    (if (not (string-starts-with? l api-prefix)) #f
+        (let* ((l      (string-trim-ws (substring l (string-length api-prefix) (string-length l))))
+               (popen  (string-index-of l #\())
+               (pclose (string-last-index-of l #\))))
+          (if (or (< popen 0) (< pclose 0)) #f
+              (let* ((ret+name (string-trim-ws (substring l 0 popen)))
+                     (sp       (string-last-sp ret+name))
+                     (fn-name  (if (>= sp 0)
+                                   (substring ret+name (+ sp 1) (string-length ret+name))
+                                   ret+name))
+                     (ret-raw  (string-trim-ws
+                                (string-replace-all
+                                 (if (>= sp 0) (substring ret+name 0 sp) "void")
+                                 "const " "")))
+                     (ret-ffi  (c-type->ffi ret-raw))
+                     (params-s (string-trim-ws (substring l (+ popen 1) pclose)))
+                     (params   (if (or (string=? params-s "") (string=? params-s "void"))
+                                   '() (split-params params-s)))
+                     (parsed-p (map parse-param params)))
+                (list fn-name ret-ffi parsed-p)))))))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Enum value parser
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(define (c-val->scheme-val s)
+  (if (not s) #f
+      (let* ((s (string-trim-ws s))
+             ;; Replace 0x or 0X with #x
+             (s2 (if (or (string-starts-with? s "0x") (string-starts-with? s "0X"))
+                     (string-append "#x" (substring s 2 (string-length s)))
+                     s))
+             ;; Strip trailing L, U, UL, ULL, etc.
+             (s3 (let loop ((val s2))
+                   (if (and (> (string-length val) 0)
+                            (member (string-ref val (- (string-length val) 1)) '(#\U #\L #\u #\l)))
+                       (loop (substring val 0 (- (string-length val) 1)))
+                       val))))
+        s3)))
+
+(define (parse-enum-value line)
+  (let* ((l (string-trim-ws (rstrip (strip-comment line) (list #\, #\;)))))
+    (if (string=? l "") #f
+        (let ((eq-idx (string-index-of l #\=)))
+          (if (>= eq-idx 0)
+              (cons (string-trim-ws (substring l 0 eq-idx))
+                    (c-val->scheme-val (substring l (+ eq-idx 1) (string-length l))))
+              (cons l #f))))))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Header state-machine parser
+;;; Handles both:
+;;;   typedef struct Name {    ← named form (raylib, SDL2, most real headers)
+;;;   typedef struct {         ← anonymous form
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+;; Extract the struct/enum name from "typedef struct Name {" or "typedef enum Name {"
+;; Returns name string or "" if none before {
+(define (extract-inline-name line keyword)
+  (let* ((after (string-trim-ws (substring line (string-length keyword) (string-length line))))
+         ;; strip everything from { onward
+         (brace (string-index-of after #\{))
+         (before (if (>= brace 0) (string-trim-ws (substring after 0 brace)) after)))
+    before))
+
+(define (parse-header lines api-prefix)
+  (let ((structs  '())
+        (enums    '())
+        (fns      '())
+        (aliases  '())
+        (state    'top)
+        (cur-name "")
+        (cur-fields '()))
+
+    (for-each
+     (lambda (raw)
+       (let ((line (string-trim-ws raw)))
+         (cond
+          ((string-starts-with? line "#") #f)
+
+          ;; ── typedef struct ... { ─────────────────────────────────────────
+          ((and (eq? state 'top) (string-starts-with? line "typedef struct")
+                (string-contains? line "{")
+                (not (string-contains? line "}")))
+           (set! cur-name   (extract-inline-name line "typedef struct"))
+           (set! cur-fields '())
+           (set! state 'in-struct))
+
+          ;; ── } Name; (struct close) ───────────────────────────────────────
+          ((and (eq? state 'in-struct) (string-starts-with? line "}"))
+           (let* ((rest (string-trim-ws (rstrip (substring line 1 (string-length line)) (list #\;))))
+                  ;; prefer name from closing line if open was anonymous
+                  (name (if (string=? cur-name "") (string-trim-ws rest) cur-name)))
+             (when (not (string=? name ""))
+               (set! structs (cons (cons name cur-fields) structs))))
+           (set! state 'top)
+           (set! cur-fields '())
+           (set! cur-name ""))
+
+          ;; ── struct field ─────────────────────────────────────────────────
+          ((eq? state 'in-struct)
+           (let ((parsed (parse-struct-field line)))
+             (when (pair? parsed)
+               (set! cur-fields (append cur-fields parsed)))))
+
+          ;; ── typedef enum ... { ───────────────────────────────────────────
+          ((and (eq? state 'top) (string-starts-with? line "typedef enum")
+                (string-contains? line "{")
+                (not (string-contains? line "}")))
+           (set! cur-name   (extract-inline-name line "typedef enum"))
+           (set! cur-fields '())
+           (set! state 'in-enum))
+
+          ;; ── } Name; (enum close) ─────────────────────────────────────────
+          ((and (eq? state 'in-enum) (string-starts-with? line "}"))
+           (let* ((rest (string-trim-ws (rstrip (substring line 1 (string-length line)) (list #\;))))
+                  (name (if (string=? cur-name "") (string-trim-ws rest) cur-name)))
+             (when (not (string=? name ""))
+               (set! enums (cons (cons name (reverse cur-fields)) enums))))
+           (set! state 'top)
+           (set! cur-fields '())
+           (set! cur-name ""))
+
+          ;; ── enum value ───────────────────────────────────────────────────
+          ((eq? state 'in-enum)
+           (let ((v (parse-enum-value line)))
+             (when v (set! cur-fields (cons v cur-fields)))))
+
+          ;; ── simple typedef alias "typedef Texture Texture2D;" ────────────
+          ((and (eq? state 'top) (string-starts-with? line "typedef ")
+                (not (string-contains? line "{"))
+                (not (string-contains? line "(")))
+           (let* ((rest  (string-trim-ws (rstrip (substring line 8 (string-length line)) (list #\;))))
+                  (sp    (string-last-sp rest))
+                  (alias (and (>= sp 0) (string-trim-ws (substring rest (+ sp 1) (string-length rest)))))
+                  (orig  (and (>= sp 0) (string-trim-ws (substring rest 0 sp)))))
+             (when (and alias orig (not (string=? alias orig)))
+               (set! aliases (cons (cons alias orig) aliases)))))
+
+          ;; ── API function ─────────────────────────────────────────────────
+          ((and (eq? state 'top) (string-starts-with? line api-prefix))
+           (let ((parsed (parse-fn-line line api-prefix)))
+             (when parsed (set! fns (cons parsed fns)))))
+
+          (else #f))))
+     lines)
+
+    (list (reverse structs) (reverse enums) (reverse fns) (reverse aliases))))
+
+;;; ─────────────────────────────────────────────────────────────────────────────
+;;; Output generation
+;;; ─────────────────────────────────────────────────────────────────────────────
+
+(define (camel->kebab s)
+  (let loop ((i 0) (acc ""))
+    (if (>= i (string-length s)) acc
+        (let ((c (string-ref s i)))
+          (if (and (char-upper-case? c) (> i 0))
+              (loop (+ i 1) (string-append acc "-" (string (char-downcase c))))
+              (loop (+ i 1) (string-append acc (string (char-downcase c)))))))))
+
+(define (join-types types)
+  (let loop ((ts types) (first #t) (acc ""))
+    (if (null? ts) acc
+        (loop (cdr ts) #f (if first (car ts) (string-append acc " " (car ts)))))))
+
+(define (emit-section title)
+  (display (format #f "\n;; ── ~A ──\n" title)))
+
+(define (emit-header source)
+  (display (format #f "\
+;;; AUTO-GENERATED by c-header-gen.lext
+;;; Source: ~A
+;;; Do not edit by hand — regenerate from the header.
+
+(use \"stdlib/c\")
+(open-namespace \"c\")
+
+;; (define lib (ffi-open \"libXXX.so\"))
+
+" source)))
+
+(define (emit-structs structs)
+  (when (pair? structs)
+    (emit-section "Struct definitions")
+    (for-each
+     (lambda (s)
+       (let ((name (car s)) (fields (cdr s)))
+         (display (format #f "(define-c-struct ~A\n" name))
+         (for-each (lambda (f) (display (format #f "  (~A ~A)\n" (car f) (cdr f)))) fields)
+         (display ")\n\n")))
+     structs)))
+
+(define (emit-aliases aliases struct-names)
+  (let ((relevant (let loop ((lst aliases) (acc (quote ()))) (if (null? lst) (reverse acc) (if (member (cdr (car lst)) struct-names) (loop (cdr lst) (cons (car lst) acc)) (loop (cdr lst) acc))))))
+    (when (pair? relevant)
+      (emit-section "Typedef aliases")
+      (for-each
+       (lambda (a)
+         (display (format #f "(ffi-typedef '~A '~A)\n" (car a) (cdr a))))
+       relevant)
+      (newline))))
+
+(define (emit-enums enums)
+  (when (pair? enums)
+    (emit-section "Enums as define constants")
+    (for-each
+     (lambda (e)
+       (let ((name (car e)) (vals (cdr e)))
+         (display (format #f ";; ~A\n" name))
+         (let loop ((vs vals) (counter 0))
+           (when (pair? vs)
+             (let* ((entry  (car vs))
+                    (cname  (car entry))
+                    (cval   (cdr entry))
+                    (val    (or cval (number->string counter))))
+               (display (format #f "(define ~A ~A)\n" cname val))
+               (loop (cdr vs) (+ counter 1)))))
+         (newline)))
+     enums)))
+
+(define (emit-fns fns lib-var)
+  (when (pair? fns)
+    (emit-section "Function bindings")
+    (for-each
+     (lambda (fn)
+       (let* ((c-name   (car fn))
+              (ret-ffi  (cadr fn))
+              (params   (caddr fn))
+              (scm-name (camel->kebab c-name))
+              (arg-types (map car params)))
+         (display (format #f "(c-import ~A ~A \"~A\" ~A (~A))\n"
+                          scm-name lib-var c-name ret-ffi (join-types arg-types)))))
+     fns)))
+
+;; ─────────────────────────────────────────────────────────────────────────────
+;; Main
+;; ─────────────────────────────────────────────────────────────────────────────
+
+;; Read header as lines — uses libnob.read-entire-file (now heap-safe for any size)
+(define (read-header-lines path-or-url)
+  (let* ((local-path
+          (if (or (string-starts-with? path-or-url "http://")
+                  (string-starts-with? path-or-url "https://"))
+              (let ((tmp "/tmp/c-header-gen-input.h"))
+                (if (libnob.cmd-run (list "curl" "-sL" path-or-url "-o" tmp))
+                    tmp
+                    (error "c-header-gen: curl failed for: " path-or-url)))
+              path-or-url))
+         (text (libnob.read-entire-file local-path)))
+    (if (not text)
+        (error "c-header-gen: cannot read file: " local-path)
+        (string-split-lines (if (string? text) text (lext-c-string-from-ptr text))))))
+
+
+(let* ((args      argv)
+       (header    (if (pair? args) (car args)
+                      (error "Usage: -- <header.h or URL> [api-prefix] [lib-var]")))
+       (api-pfx   (if (and (pair? args) (pair? (cdr args))) (cadr args) ""))
+       (lib-var   (if (and (pair? args) (pair? (cdr args)) (pair? (cddr args))) (caddr args) "lib"))
+       (lines     (read-header-lines header))
+       (parsed    (parse-header lines api-pfx))
+       (structs   (car parsed))
+       (enums     (cadr parsed))
+       (fns       (caddr parsed))
+       (aliases   (cadddr parsed))
+       (snames    (map car structs)))
+
+  (emit-header header)
+  (emit-structs structs)
+  (emit-aliases aliases snames)
+  (emit-enums enums)
+  (emit-fns fns lib-var))

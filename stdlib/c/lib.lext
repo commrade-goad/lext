@@ -18,7 +18,7 @@
         utf8-len utf8-ref utf8-substring utf8-slice utf8-index
         utf8-reverse utf8-split utf8-join utf8-ref-codepoint
         utf8-string utf8-codepoint-size utf8-char=? utf8-map
-        utf8-for-each utf8->list list->utf8)
+        utf8-for-each utf8->list list->utf8 c-printf)
 
 ;; --- Typed Pointer Wrapper ---
 (define (c-tptr type ptr)
@@ -134,10 +134,11 @@
 
 ;; --- Low-Level Memory Helper Functions (from libc) ---
 (c-import c-memcpy-raw internal-c-libc "memcpy" pointer (pointer pointer ulong))
-(c-import c-memset-raw internal-c-libc "memset" pointer (pointer int ulong))
-(c-import internal-c-malloc         internal-c-libc "malloc" pointer (ulong))
-(c-import internal-c-free           internal-c-libc "free"   void    (pointer))
+(c-import c-memset-raw internal-c-libc "memset" pointer               (pointer int ulong))
+(c-import internal-c-malloc         internal-c-libc "malloc"  pointer (ulong))
+(c-import internal-c-free           internal-c-libc "free"    void    (pointer))
 (c-import internal-c-realloc        internal-c-libc "realloc" pointer (pointer ulong))
+(c-import internal-c-printf         internal-c-libc "printf"  int     (string) 1)
 
 (define (malloc size)
   (let ((ptr (internal-c-malloc size)))
@@ -775,3 +776,80 @@
         (reverse result) ;; Reverse because we build the list by prepending
         (let ((element (deref ptr type i)))
           (loop (+ i 1) (cons element result))))))
+
+;; --- Native C Printf Wrapper with %v Auto-Formatting ---
+(define (c-printf fmt . variadic)
+  "Calls the native C printf. Supports standard C specifiers (%d, %s, etc.)
+   and a custom %v specifier which automatically maps to the correct C type."
+  (let loop ((i 0)
+             (chars '())
+             (args variadic)
+             (new-args '()))
+    (if (>= i (string-length fmt))
+        ;; Apply to native printf, appending any remaining unwrapped args safely
+        (let ((final-args (append (reverse new-args)
+                                  (map (lambda (x) (if (c-tptr? x) (c-tptr-ptr x) x)) args))))
+          (apply internal-c-printf (list->string (reverse chars)) final-args))
+        (let ((c (string-ref fmt i)))
+          (if (char=? c #\%)
+              (if (eqv? (+ i 1) (string-length fmt))
+                  ;; Trailing %, just pass it through
+                  (loop (+ i 1) (cons c chars) args new-args)
+                  (let ((next-c (string-ref fmt (+ i 1))))
+                    (cond
+                     ((char=? next-c #\%)
+                      ;; Escaped %%
+                      (loop (+ i 2) (cons #\% (cons #\% chars)) args new-args))
+
+                     ((char=? next-c #\v)
+                      ;; Magic %v Auto-Formatter
+                      (if (null? args)
+                          (error "c-printf: not enough arguments for %v placeholder")
+                          (let* ((arg (car args))
+                                 (spec-and-val
+                                  (cond
+                                   ((integer? arg) (cons "%lld" arg))
+                                   ((real? arg)    (cons "%f" arg))
+                                   ((string? arg)  (cons "%s" arg))
+                                   ((char? arg)    (cons "%c" arg))
+                                   ((boolean? arg) (cons "%s" (if arg "#t" "#f")))
+                                   ((or (c-pointer? arg) (c-tptr? arg))
+                                    (cons "%p" (if (c-tptr? arg) (c-tptr-ptr arg) arg)))
+                                   (else (cons "%s" (format #f "~A" arg))))))
+                            (let ((spec-chars (reverse (string->list (car spec-and-val)))))
+                              (loop (+ i 2)
+                                    (append spec-chars chars)
+                                    (cdr args)
+                                    (cons (cdr spec-and-val) new-args))))))
+
+                     (else
+                      ;; Standard C format specifier (e.g. %d, %02x, %*.*f)
+                      ;; We scan to the end of the specifier to consume the correct number of arguments.
+                      (let scan-spec ((j (+ i 1)) (spec-chars (list #\%)) (consumed-args '()) (rem-args args))
+                        (if (>= j (string-length fmt))
+                            (loop j (append spec-chars chars) rem-args (append consumed-args new-args))
+                            (let ((sc (string-ref fmt j)))
+                              (cond
+                               ((char=? sc #\*)
+                                ;; Asterisk consumes an extra variadic argument for width/precision
+                                (if (null? rem-args)
+                                    (error "c-printf: not enough arguments for * in specifier")
+                                    (scan-spec (+ j 1)
+                                               (cons sc spec-chars)
+                                               (cons (car rem-args) consumed-args)
+                                               (cdr rem-args))))
+                               ((string-position (string sc) "diuoxXfFeEgGaAcspn")
+                                ;; End of the format specifier, consume the primary target argument
+                                (if (null? rem-args)
+                                    (error "c-printf: not enough arguments for standard specifier")
+                                    (let* ((arg (car rem-args))
+                                           (actual-arg (if (c-tptr? arg) (c-tptr-ptr arg) arg)))
+                                      (loop (+ j 1)
+                                            (cons sc spec-chars)
+                                            (cdr rem-args)
+                                            (cons actual-arg (append consumed-args new-args))))))
+                               (else
+                                ;; Intermediate specifier flags (e.g., the '0' and '2' in %02x)
+                                (scan-spec (+ j 1) (cons sc spec-chars) consumed-args rem-args))))))))))
+              ;; Normal string character
+              (loop (+ i 1) (cons c chars) args new-args))))))
